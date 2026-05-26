@@ -162,14 +162,11 @@ export default function WellnessPage() {
             {catItems.map(item => {
               const open = expandedId === item.id
               return (
-                <div key={item.id} style={{ background: 'var(--color-surface-raised)', borderRadius: 12, marginBottom: 8, border: '1px solid var(--color-border)', overflow: 'hidden' }}>
+                <div key={item.id} style={{ background: 'var(--color-surface-raised)', borderRadius: 12, marginBottom: 8, border: '1px solid rgba(0,0,0,0.06)', boxShadow: '0 1px 3px rgba(0,0,0,0.08)', overflow: 'hidden' }}>
                   {/* Header row */}
-                  <div onClick={() => setExpandedId(open ? null : item.id)} style={{ cursor: 'pointer', padding: '13px 14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+                  <div onClick={() => setExpandedId(open ? null : item.id)} style={{ cursor: 'pointer', padding: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
                     <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                        <span style={{ fontSize: '11px', fontWeight: 500, padding: '2px 8px', borderRadius: '100px', background: meta.bg, color: meta.color, textTransform: 'uppercase' as const, letterSpacing: '0.03em' }}>
-                          {meta.label}
-                        </span>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                         <span style={{ fontSize: '14px', fontWeight: 500, color: 'var(--color-text-primary)' }}>{item.name}</span>
                       </div>
                       {item.note && (
@@ -190,7 +187,7 @@ export default function WellnessPage() {
 
                   {/* Expanded */}
                   {open && (
-                    <div style={{ borderTop: '1px solid var(--color-border)', padding: '12px 14px 14px' }}>
+                    <div style={{ borderTop: '1px solid rgba(0,0,0,0.06)', padding: '12px 16px 16px' }}>
                       {item.note && (
                         <p style={{ fontSize: '13px', color: 'var(--color-text-secondary)', lineHeight: 1.55, marginBottom: item.link_url ? 12 : 0 }}>
                           {item.note}
