@@ -1,0 +1,33 @@
+import { redirect } from 'next/navigation'
+import { createClient } from '@/lib/supabase/server'
+import BottomNav from './BottomNav'
+
+export default async function AppLayout({ children }: { children: React.ReactNode }) {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+
+  if (!user) {
+    redirect('/login')
+  }
+
+  return (
+    <div style={{
+      display: 'flex',
+      flexDirection: 'column',
+      minHeight: '100vh',
+      maxWidth: '500px',
+      margin: '0 auto',
+      background: 'var(--color-surface)',
+      position: 'relative',
+    }}>
+      <main style={{
+        flex: 1,
+        overflowY: 'auto',
+        paddingBottom: 'calc(64px + env(safe-area-inset-bottom))',
+      }}>
+        {children}
+      </main>
+      <BottomNav />
+    </div>
+  )
+}

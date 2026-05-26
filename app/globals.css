@@ -1,0 +1,45 @@
+:root {
+  --color-primary: #1a4a3a;
+  --color-primary-mid: #2d6b55;
+  --color-primary-light: #e8f2ee;
+  --color-primary-pale: #f2f8f5;
+  --color-gold: #b8935a;
+  --color-gold-bg: #f5ead8;
+  --color-sage: #6b9e87;
+  --color-warning: #EF9F27;
+  --color-warning-light: #FAEEDA;
+  --color-success: #639922;
+  --color-success-light: #EAF3DE;
+  --color-danger: #E24B4A;
+  --color-danger-light: #FCEBEB;
+  --color-info: #378ADD;
+  --color-info-light: #E6F1FB;
+  --color-surface: #F8F7F4;
+  --color-surface-raised: #FFFFFF;
+  --color-border: rgba(0,0,0,0.1);
+  --color-text-primary: #1a1a18;
+  --color-text-secondary: #5F5E5A;
+  --color-text-hint: #888780;
+  --font-sans: 'DM Sans', sans-serif;
+  --font-serif: 'DM Serif Display', serif;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html, body {
+  background: var(--color-surface);
+  color: var(--color-text-primary);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+input, button, textarea, select {
+  font-family: var(--font-sans);
+}
