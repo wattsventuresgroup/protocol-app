@@ -223,6 +223,18 @@ export default function PlanPage() {
                 {supp.cadence && <Pill>{supp.cadence}</Pill>}
               </div>
             )}
+            {supp.titration_instructions && (
+              <div style={{ paddingLeft: 16, marginTop: 5 }}>
+                <span style={{ display: 'inline-block', padding: '2px 8px', background: 'var(--color-warning-light)', color: 'var(--color-warning)', borderRadius: '100px', fontSize: '11px', lineHeight: '18px' }}>
+                  Titration
+                </span>
+              </div>
+            )}
+            {supp.notes_for_patient && (
+              <p style={{ paddingLeft: 16, fontSize: '12px', color: 'var(--color-text-secondary)', marginTop: 5, lineHeight: 1.45, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' as const, overflow: 'hidden' }}>
+                {supp.notes_for_patient}
+              </p>
+            )}
           </div>
           <span style={{ fontSize: '16px', color: 'var(--color-text-hint)', transform: open ? 'rotate(90deg)' : 'none', transition: 'transform 0.15s', flexShrink: 0, marginTop: 1, lineHeight: 1 }}>›</span>
         </div>
@@ -336,11 +348,11 @@ export default function PlanPage() {
                     {supp.purchase_source ?? 'Buy'} →
                   </a>
                 )}
-                <a href={`https://www.google.com/search?q=${encodeURIComponent(`${supp.name}${supp.dose ? ' ' + supp.dose : ''}`)}`} target="_blank" rel="noopener noreferrer" style={{ padding: '5px 11px', background: 'var(--color-primary-light)', color: 'var(--color-primary-mid)', borderRadius: 6, fontSize: '11px', textDecoration: 'none' }}>
+                <a href={`https://www.google.com/search?q=${encodeURIComponent(supp.name)}`} target="_blank" rel="noopener noreferrer" style={{ padding: '5px 11px', background: 'var(--color-primary-light)', color: 'var(--color-primary-mid)', borderRadius: 6, fontSize: '11px', textDecoration: 'none' }}>
                   Search
                 </a>
-                <button onClick={() => setStatus(supp, 'notstarted', 'purchased')} style={{ padding: '5px 11px', background: 'var(--color-success-light)', color: 'var(--color-success)', border: 'none', borderRadius: 6, fontSize: '11px', fontWeight: 500, cursor: 'pointer' }}>
-                  Got it ✓
+                <button onClick={() => setStatus(supp, 'notstarted', 'purchased')} style={{ padding: '5px 11px', background: 'transparent', color: 'var(--color-text-secondary)', border: '1px solid var(--color-border)', borderRadius: 6, fontSize: '11px', fontWeight: 500, cursor: 'pointer' }}>
+                  Got it
                 </button>
               </div>
             </div>
@@ -392,7 +404,7 @@ export default function PlanPage() {
         style={{
           position: 'fixed',
           bottom: 'calc(64px + env(safe-area-inset-bottom) + 16px)',
-          right: 'max(16px, calc((100vw - 500px) / 2 + 16px))',
+          right: 'max(16px, calc((100vw - var(--app-max-width)) / 2 + 16px))',
           width: 52, height: 52, borderRadius: '50%',
           background: 'var(--color-primary)', color: '#fff',
           border: 'none', cursor: 'pointer',

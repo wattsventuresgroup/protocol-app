@@ -22,6 +22,26 @@
   --color-text-hint: #888780;
   --font-sans: 'DM Sans', sans-serif;
   --font-serif: 'DM Serif Display', serif;
+  --app-max-width: 500px;
+  --app-h-padding: 0px;
+  --nav-item-py: 10px;
+  --nav-item-pb: 8px;
+}
+
+@media (min-width: 640px) {
+  :root {
+    --app-max-width: 680px;
+    --app-h-padding: 8px;
+  }
+}
+
+@media (min-width: 1024px) {
+  :root {
+    --app-max-width: 800px;
+    --app-h-padding: 20px;
+    --nav-item-py: 14px;
+    --nav-item-pb: 12px;
+  }
 }
 
 * {

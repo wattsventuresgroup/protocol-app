@@ -15,7 +15,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       display: 'flex',
       flexDirection: 'column',
       minHeight: '100vh',
-      maxWidth: '500px',
+      maxWidth: 'var(--app-max-width)',
       margin: '0 auto',
       background: 'var(--color-surface)',
       position: 'relative',
@@ -24,6 +24,8 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         flex: 1,
         overflowY: 'auto',
         paddingBottom: 'calc(64px + env(safe-area-inset-bottom))',
+        paddingLeft: 'var(--app-h-padding)',
+        paddingRight: 'var(--app-h-padding)',
       }}>
         {children}
       </main>

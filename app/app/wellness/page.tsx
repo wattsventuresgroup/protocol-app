@@ -34,7 +34,7 @@ const CATEGORY_META: Record<Category, { label: string; color: string; bg: string
     headColor: 'var(--color-info)',
   },
   care: {
-    label: 'Care',
+    label: 'Ongoing Care & Treatment',
     color: 'var(--color-warning)',
     bg: 'var(--color-warning-light)',
     headColor: 'var(--color-warning)',
@@ -172,6 +172,11 @@ export default function WellnessPage() {
                         </span>
                         <span style={{ fontSize: '14px', fontWeight: 500, color: 'var(--color-text-primary)' }}>{item.name}</span>
                       </div>
+                      {item.note && (
+                        <p style={{ fontSize: '12px', color: 'var(--color-text-secondary)', marginTop: 4, lineHeight: 1.45, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' as const, overflow: 'hidden' }}>
+                          {item.note}
+                        </p>
+                      )}
                       {item.cadence && (
                         <div style={{ marginTop: 5, paddingLeft: 0 }}>
                           <span style={{ display: 'inline-block', padding: '2px 8px', background: 'var(--color-primary-light)', color: 'var(--color-primary-mid)', borderRadius: '100px', fontSize: '11px', lineHeight: '18px' }}>
@@ -214,7 +219,7 @@ export default function WellnessPage() {
         style={{
           position: 'fixed',
           bottom: 'calc(64px + env(safe-area-inset-bottom) + 16px)',
-          right: 'max(16px, calc((100vw - 500px) / 2 + 16px))',
+          right: 'max(16px, calc((100vw - var(--app-max-width)) / 2 + 16px))',
           width: 52, height: 52, borderRadius: '50%',
           background: 'var(--color-primary)', color: '#fff',
           border: 'none', cursor: 'pointer',
@@ -233,7 +238,7 @@ export default function WellnessPage() {
         <select value={form.category} onChange={e => setForm(f => ({ ...f, category: e.target.value as Category }))} style={input}>
           <option value="nutrition">Nutrition</option>
           <option value="testing">Testing</option>
-          <option value="care">Care</option>
+          <option value="care">Ongoing Care & Treatment</option>
         </select>
 
         <label style={lbl}>Name *</label>

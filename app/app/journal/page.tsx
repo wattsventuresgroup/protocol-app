@@ -80,6 +80,7 @@ export default function JournalPage() {
   const [showConfigSheet, setShowConfigSheet] = useState(false)
   const [showCheckin, setShowCheckin] = useState(false)
   const [showNote, setShowNote] = useState(false)
+  const [showInlineSetup, setShowInlineSetup] = useState(false)
   const [saving, setSaving] = useState(false)
 
   // Config form state
@@ -144,8 +145,32 @@ export default function JournalPage() {
     setShowConfigSheet(false)
   }
 
+  async function saveInlineSetup() {
+    if (!userId) return
+    setSaving(true)
+    const cleanSymptoms = configForm.symptoms.filter(s => s.name.trim())
+    const { data: row } = await supabase
+      .from('journal_configs')
+      .upsert({
+        patient_id: userId,
+        cadence: configForm.cadence,
+        symptoms: cleanSymptoms,
+        allow_free_text: configForm.allowFreeText,
+        instructions: configForm.instructions.trim() || null,
+        updated_at: new Date().toISOString(),
+      }, { onConflict: 'patient_id' })
+      .select()
+      .single()
+    if (row) {
+      setConfig(row)
+      setShowInlineSetup(false)
+      setShowCheckin(true)
+    }
+    setSaving(false)
+  }
+
   async function saveCheckin() {
-    if (!userId || !config) return
+    if (!userId) return
     setSaving(true)
     const { data: row } = await supabase
       .from('journal_entries')
@@ -225,39 +250,59 @@ export default function JournalPage() {
           <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: '20px', fontWeight: 400, color: 'var(--color-primary)', margin: 0, marginBottom: 4 }}>Journal</h1>
           <p style={{ fontSize: '12px', color: 'var(--color-text-secondary)', margin: 0 }}>Private to you</p>
         </div>
-        <button onClick={() => setShowConfigSheet(true)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '18px', color: 'var(--color-text-hint)', padding: '4px 6px' }} title="Configure check-ins">
-          ⚙️
-        </button>
+        {config !== null && (
+          <button onClick={() => setShowConfigSheet(true)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '18px', color: 'var(--color-text-hint)', padding: '4px 6px' }} title="Configure check-ins">
+            ⚙️
+          </button>
+        )}
       </div>
 
-      {/* No config → setup prompt */}
-      {config === null && (
-        <div style={{ background: 'var(--color-primary-light)', borderRadius: 12, padding: '20px', textAlign: 'center', marginBottom: 24 }}>
-          <p style={{ fontSize: '14px', fontWeight: 500, color: 'var(--color-primary)', marginBottom: 8 }}>Set up your check-ins</p>
-          <p style={{ fontSize: '12px', color: 'var(--color-primary-mid)', marginBottom: 16 }}>Choose what to track and how often</p>
-          <button onClick={() => setShowConfigSheet(true)} style={{ padding: '10px 20px', background: 'var(--color-primary)', color: '#fff', border: 'none', borderRadius: 8, fontSize: '13px', fontWeight: 500, cursor: 'pointer' }}>
-            Get started
+      {/* Action buttons */}
+      {!showCheckin && !showNote && !showInlineSetup && (
+        <div style={{ display: 'flex', gap: 10, marginBottom: 20 }}>
+          <button onClick={() => config ? setShowCheckin(true) : setShowInlineSetup(true)} style={{ flex: 1, padding: '10px', background: 'var(--color-primary)', color: '#fff', border: 'none', borderRadius: 8, fontSize: '13px', fontWeight: 500, cursor: 'pointer' }}>
+            New check-in
+          </button>
+          <button onClick={() => setShowNote(true)} style={{ flex: 1, padding: '10px', background: 'var(--color-surface-raised)', color: 'var(--color-primary)', border: '1px solid var(--color-primary)', borderRadius: 8, fontSize: '13px', cursor: 'pointer' }}>
+            Add note
           </button>
         </div>
       )}
 
-      {/* Main journal view (config exists) */}
-      {config !== null && (
-        <>
-          {/* Action buttons */}
-          {!showCheckin && !showNote && (
-            <div style={{ display: 'flex', gap: 10, marginBottom: 20 }}>
-              <button onClick={() => setShowCheckin(true)} style={{ flex: 1, padding: '10px', background: 'var(--color-primary)', color: '#fff', border: 'none', borderRadius: 8, fontSize: '13px', fontWeight: 500, cursor: 'pointer' }}>
-                New check-in
-              </button>
-              <button onClick={() => setShowNote(true)} style={{ flex: 1, padding: '10px', background: 'var(--color-surface-raised)', color: 'var(--color-primary)', border: '1px solid var(--color-primary)', borderRadius: 8, fontSize: '13px', cursor: 'pointer' }}>
-                Add note
-              </button>
+      {/* Inline setup form */}
+      {showInlineSetup && (
+        <div style={{ background: 'var(--color-surface-raised)', border: '1px solid var(--color-border)', borderRadius: 12, padding: '16px', marginBottom: 20 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+            <span style={{ fontSize: '14px', fontWeight: 500 }}>Quick setup</span>
+            <button onClick={() => setShowInlineSetup(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-text-hint)', fontSize: '18px', lineHeight: 1 }}>✕</button>
+          </div>
+          <label style={lbl}>How often?</label>
+          <select value={configForm.cadence} onChange={e => setConfigForm(f => ({ ...f, cadence: e.target.value }))} style={input}>
+            {['Daily', 'Weekly', 'Biweekly', 'As needed'].map(c => <option key={c}>{c}</option>)}
+          </select>
+          <label style={{ ...lbl, marginBottom: 10 }}>What to track (up to 3)</label>
+          {configForm.symptoms.map((s, i) => (
+            <div key={i} style={{ display: 'flex', gap: 8, marginBottom: 8, alignItems: 'center' }}>
+              <input type="text" value={s.name} onChange={e => setSymptom(i, 'name', e.target.value)} placeholder={`e.g. ${['Energy', 'Nausea', 'Sleep'][i] ?? 'Symptom'}`} style={{ ...input, marginBottom: 0, flex: 1 }} />
+              <button onClick={() => removeSymptom(i)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-text-hint)', fontSize: '18px', lineHeight: 1, padding: '8px 4px', flexShrink: 0 }}>✕</button>
             </div>
+          ))}
+          {configForm.symptoms.length < 3 && (
+            <button onClick={addSymptom} style={{ background: 'none', border: '1px dashed var(--color-border)', borderRadius: 8, padding: '8px 14px', fontSize: '12px', color: 'var(--color-text-secondary)', cursor: 'pointer', marginBottom: 14, width: '100%' }}>
+              + Add symptom
+            </button>
           )}
+          <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+            <button onClick={() => setShowInlineSetup(false)} style={{ flex: 1, padding: '10px', background: 'none', border: '1px solid var(--color-border)', borderRadius: 8, fontSize: '13px', cursor: 'pointer', color: 'var(--color-text-secondary)' }}>Cancel</button>
+            <button onClick={saveInlineSetup} disabled={saving} style={{ flex: 2, padding: '10px', background: 'var(--color-primary)', color: '#fff', border: 'none', borderRadius: 8, fontSize: '13px', fontWeight: 500, cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? 0.7 : 1 }}>
+              {saving ? 'Saving…' : 'Set up & check in'}
+            </button>
+          </div>
+        </div>
+      )}
 
-          {/* Check-in form */}
-          {showCheckin && (
+      {/* Check-in form */}
+      {showCheckin && config && (
             <div style={{ background: 'var(--color-surface-raised)', border: '1px solid var(--color-border)', borderRadius: 12, padding: '16px', marginBottom: 20 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
                 <span style={{ fontSize: '14px', fontWeight: 500 }}>New check-in</span>
@@ -364,8 +409,6 @@ export default function JournalPage() {
               ))}
             </div>
           )}
-        </>
-      )}
 
       {/* Journal config sheet */}
       <BottomSheet open={showConfigSheet} onClose={() => setShowConfigSheet(false)} title="Configure check-ins">
