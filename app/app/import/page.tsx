@@ -102,6 +102,7 @@ export default function ImportPage() {
   const fileRef = useRef<HTMLInputElement>(null)
   const [fileName, setFileName] = useState('')
   const [pdfText, setPdfText] = useState('')
+  const [pdfLoading, setPdfLoading] = useState(false)
 
   useEffect(() => {
     async function load() {
@@ -118,26 +119,42 @@ export default function ImportPage() {
     load()
   }, [])
 
-  function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+  async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
     if (!file) return
     setFileName(file.name)
-    const reader = new FileReader()
-    reader.onload = ev => {
-      const text = ev.target?.result as string ?? ''
-      if (text.trim().length < 100) {
-        setPdfText('')
+    setPdfText('')
+    setErrorMsg('')
+    setPdfLoading(true)
+    try {
+      const arrayBuffer = await file.arrayBuffer()
+      const pdfjs = await import('pdfjs-dist')
+      pdfjs.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`
+      const pdf = await pdfjs.getDocument({ data: new Uint8Array(arrayBuffer) }).promise
+      const pageTexts: string[] = []
+      for (let i = 1; i <= pdf.numPages; i++) {
+        const page = await pdf.getPage(i)
+        const content = await page.getTextContent()
+        const text = (content.items as Array<{ str?: string }>)
+          .map(item => item.str ?? '')
+          .join(' ')
+        pageTexts.push(text)
+      }
+      const fullText = pageTexts.join('\n\n').trim()
+      if (fullText.length < 100) {
         setErrorMsg("This PDF couldn't be read as text. Try copying and pasting the content instead.")
       } else {
-        setPdfText(text)
-        setErrorMsg('')
+        setPdfText(fullText)
       }
+    } catch {
+      setErrorMsg("This PDF couldn't be read as text. Try copying and pasting the content instead.")
+    } finally {
+      setPdfLoading(false)
     }
-    reader.readAsText(file)
   }
 
   const activeText = tab === 'paste' ? pasteText : pdfText
-  const canExtract = activeText.trim().length > 0 && phase !== 'loading'
+  const canExtract = activeText.trim().length > 0 && phase !== 'loading' && !pdfLoading
 
   async function handleExtract() {
     if (!canExtract) return
@@ -330,16 +347,22 @@ export default function ImportPage() {
           ) : (
             <div>
               <div
-                onClick={() => fileRef.current?.click()}
-                style={{ border: '1.5px dashed var(--color-border)', borderRadius: 10, padding: '28px 20px', textAlign: 'center', cursor: 'pointer', marginBottom: 0 }}
+                onClick={() => !pdfLoading && fileRef.current?.click()}
+                style={{ border: '1.5px dashed var(--color-border)', borderRadius: 10, padding: '28px 20px', textAlign: 'center', cursor: pdfLoading ? 'default' : 'pointer' }}
               >
-                <p style={{ fontSize: '13px', color: 'var(--color-text-secondary)', marginBottom: 4 }}>
-                  {fileName || 'Tap to select a PDF'}
-                </p>
-                {!fileName && <p style={{ fontSize: '11px', color: 'var(--color-text-hint)' }}>Text-based PDFs only</p>}
-                {pdfText && <p style={{ fontSize: '11px', color: '#1D9E75', marginTop: 6 }}>Ready to extract</p>}
+                {pdfLoading ? (
+                  <p style={{ fontSize: '13px', color: 'var(--color-text-secondary)' }}>Reading PDF…</p>
+                ) : (
+                  <>
+                    <p style={{ fontSize: '13px', color: 'var(--color-text-secondary)', marginBottom: 4 }}>
+                      {fileName || 'Tap to select a PDF'}
+                    </p>
+                    {!fileName && <p style={{ fontSize: '11px', color: 'var(--color-text-hint)' }}>Text-based PDFs only</p>}
+                    {pdfText && <p style={{ fontSize: '11px', color: '#1D9E75', marginTop: 6 }}>Ready to extract</p>}
+                  </>
+                )}
               </div>
-              <input ref={fileRef} type="file" accept=".pdf" onChange={handleFileChange} style={{ display: 'none' }} />
+              <input ref={fileRef} type="file" accept=".pdf" onChange={handleFileChange} disabled={pdfLoading} style={{ display: 'none' }} />
             </div>
           )}
 
