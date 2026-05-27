@@ -154,9 +154,13 @@ export default function PlanPage() {
   const [discontinueNote, setDiscontinueNote] = useState('')
   const [saving, setSaving] = useState(false)
   const [form, setForm] = useState(EMPTY_FORM)
+  const [editingSupp, setEditingSupp] = useState<Supplement | null>(null)
   const [showSearch, setShowSearch] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [expandedSearchId, setExpandedSearchId] = useState<string | null>(null)
+  const [searchFrom, setSearchFrom] = useState('')
+  const [searchTo, setSearchTo] = useState('')
+  const [searchApplied, setSearchApplied] = useState(false)
 
   useEffect(() => {
     async function load() {
@@ -224,11 +228,56 @@ export default function PlanPage() {
     setForm(EMPTY_FORM)
   }
 
+  async function handleEditSave() {
+    if (!form.name.trim() || !userId || !editingSupp) return
+    setSaving(true)
+    const updates = {
+      name: form.name.trim(),
+      dose: form.dose.trim() || null,
+      timing: form.timing || null,
+      cadence: form.cadence || null,
+      intake_conditions: form.intakeConditions.trim() || null,
+      notes_for_patient: form.notes.trim() || null,
+      purchase_source: form.purchaseSource !== 'None' ? form.purchaseSource : null,
+      buy_link: form.buyLink.trim() || null,
+      updated_at: new Date().toISOString(),
+    }
+    await supabase.from('supplements').update(updates).eq('id', editingSupp.id)
+    await logEvent(editingSupp.id, form.name.trim(), 'added', 'edited')
+    setSupplements(prev => prev.map(s => s.id === editingSupp!.id ? { ...s, ...updates } : s))
+    setSaving(false)
+    setShowAddSheet(false)
+    setForm(EMPTY_FORM)
+    setEditingSupp(null)
+  }
+
   async function handleDiscontinueConfirm(supp: Supplement) {
     await setStatus(supp, 'discontinued', 'discontinued', discontinueNote || undefined)
     setDiscontinueId(null)
     setDiscontinueNote('')
     setExpandedId(null)
+  }
+
+  function openEditSheet(supp: Supplement) {
+    setEditingSupp(supp)
+    setForm({
+      name: supp.name,
+      dose: supp.dose ?? '',
+      timing: supp.timing ?? '',
+      cadence: supp.cadence ?? '',
+      intakeConditions: supp.intake_conditions ?? '',
+      notes: supp.notes_for_patient ?? '',
+      purchaseSource: supp.purchase_source ?? 'None',
+      buyLink: supp.buy_link ?? '',
+      startingStatus: supp.status,
+    })
+    setShowAddSheet(true)
+  }
+
+  function closeSheet() {
+    setShowAddSheet(false)
+    setForm(EMPTY_FORM)
+    setEditingSupp(null)
   }
 
   const toBuy = supplements.filter(s => s.status === 'tobuy')
@@ -239,9 +288,16 @@ export default function PlanPage() {
     .map(t => ({ timing: t, items: planSupps.filter(s => timingGroup(s.timing) === t) }))
     .filter(g => g.items.length > 0)
 
-  const searchResults = searchQuery.trim()
-    ? supplements.filter(s => s.name.toLowerCase().includes(searchQuery.toLowerCase()))
-    : []
+  const hasFilter = searchQuery.trim() || searchApplied
+  const searchResults = hasFilter ? supplements.filter(s => {
+    if (searchQuery.trim() && !s.name.toLowerCase().includes(searchQuery.toLowerCase())) return false
+    if (searchApplied) {
+      const d = s.created_at.slice(0, 10)
+      if (searchFrom && d < searchFrom) return false
+      if (searchTo && d > searchTo) return false
+    }
+    return true
+  }) : []
 
   function renderCollapsedActions(supp: Supplement) {
     const btnBase: React.CSSProperties = {
@@ -261,16 +317,6 @@ export default function PlanPage() {
           style={{ ...btnBase, color: '#1D9E75', border: '1px solid #1D9E75', fontWeight: 500 }}
         >
           Mark as started
-        </button>
-      )
-    }
-    if (supp.status === 'active') {
-      return (
-        <button
-          onClick={e => { e.stopPropagation(); setStatus(supp, 'paused', 'paused') }}
-          style={{ ...btnBase, color: 'var(--color-warning)', border: '1px solid var(--color-warning)' }}
-        >
-          Pause
         </button>
       )
     }
@@ -356,6 +402,9 @@ export default function PlanPage() {
                     Resume
                   </button>
                 )}
+                <button onClick={() => openEditSheet(supp)} style={{ padding: '7px 12px', background: 'transparent', color: 'var(--color-text-secondary)', border: '1px solid var(--color-border)', borderRadius: 8, fontSize: '12px', cursor: 'pointer' }}>
+                  Edit
+                </button>
                 <button onClick={() => setDiscontinueId(supp.id)} style={{ padding: '7px 12px', background: 'transparent', color: 'var(--color-danger)', border: '1px solid var(--color-danger)', borderRadius: 8, fontSize: '12px', cursor: 'pointer' }}>
                   Discontinue
                 </button>
@@ -416,7 +465,7 @@ export default function PlanPage() {
             Import
           </a>
           <button
-            onClick={() => { setShowSearch(v => !v); setSearchQuery(''); setExpandedSearchId(null) }}
+            onClick={() => { setShowSearch(v => !v); setSearchQuery(''); setExpandedSearchId(null); setSearchFrom(''); setSearchTo(''); setSearchApplied(false) }}
             style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '4px', color: showSearch ? 'var(--color-primary)' : 'var(--color-text-hint)', display: 'flex', alignItems: 'center' }}
           >
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -426,7 +475,7 @@ export default function PlanPage() {
         </div>
       </div>
 
-      {/* Search bar */}
+      {/* Search panel */}
       {showSearch && (
         <div style={{ marginBottom: 20 }}>
           <input
@@ -435,10 +484,38 @@ export default function PlanPage() {
             onChange={e => { setSearchQuery(e.target.value); setExpandedSearchId(null) }}
             placeholder="Search supplements..."
             autoFocus
-            style={{ ...input, marginBottom: 0 }}
+            style={{ ...input, marginBottom: 8 }}
           />
-          {searchQuery.trim() && (
-            <div style={{ marginTop: 8 }}>
+          <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap', marginBottom: 8 }}>
+            <input
+              type="date"
+              value={searchFrom}
+              onChange={e => setSearchFrom(e.target.value)}
+              style={{ ...input, flex: 1, minWidth: 120, marginBottom: 0, fontSize: '12px', padding: '8px 10px' }}
+            />
+            <span style={{ fontSize: '12px', color: 'var(--color-text-hint)', flexShrink: 0 }}>to</span>
+            <input
+              type="date"
+              value={searchTo}
+              onChange={e => setSearchTo(e.target.value)}
+              style={{ ...input, flex: 1, minWidth: 120, marginBottom: 0, fontSize: '12px', padding: '8px 10px' }}
+            />
+            <button
+              onClick={() => setSearchApplied(true)}
+              style={{ padding: '8px 12px', background: 'var(--color-primary)', color: '#fff', border: 'none', borderRadius: 6, fontSize: '12px', cursor: 'pointer', flexShrink: 0 }}
+            >
+              Apply
+            </button>
+            <button
+              onClick={() => { setSearchFrom(''); setSearchTo(''); setSearchApplied(false) }}
+              style={{ padding: '8px 12px', background: 'none', color: 'var(--color-text-secondary)', border: '1px solid var(--color-border)', borderRadius: 6, fontSize: '12px', cursor: 'pointer', flexShrink: 0 }}
+            >
+              Clear
+            </button>
+          </div>
+
+          {hasFilter && (
+            <div style={{ marginTop: 4 }}>
               {searchResults.length === 0 ? (
                 <p style={{ fontSize: '13px', color: 'var(--color-text-hint)', padding: '12px 0' }}>No supplements found</p>
               ) : (
@@ -568,8 +645,8 @@ export default function PlanPage() {
         +
       </button>
 
-      {/* Add supplement sheet */}
-      <BottomSheet open={showAddSheet} onClose={() => { setShowAddSheet(false); setForm(EMPTY_FORM) }} title="Add supplement">
+      {/* Add / Edit supplement sheet */}
+      <BottomSheet open={showAddSheet} onClose={closeSheet} title={editingSupp ? 'Edit supplement' : 'Add supplement'}>
         <label style={frmLbl}>Name *</label>
         <input type="text" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="e.g. Magnesium Glycinate" style={input} />
 
@@ -606,18 +683,26 @@ export default function PlanPage() {
           </>
         )}
 
-        <label style={frmLbl}>Add to</label>
-        <div style={{ display: 'flex', gap: 8, marginBottom: 20 }}>
-          {([['tobuy', 'To Buy list'], ['notstarted', 'My Plan directly']] as const).map(([val, lbl]) => (
-            <label key={val} style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 8, padding: '10px 12px', border: `1px solid ${form.startingStatus === val ? 'var(--color-primary)' : 'var(--color-border)'}`, borderRadius: 8, cursor: 'pointer', background: form.startingStatus === val ? 'var(--color-primary-pale)' : 'transparent' }}>
-              <input type="radio" name="startingStatus" value={val} checked={form.startingStatus === val} onChange={() => setForm(f => ({ ...f, startingStatus: val }))} style={{ accentColor: 'var(--color-primary)', flexShrink: 0 }} />
-              <span style={{ fontSize: '12px' }}>{lbl}</span>
-            </label>
-          ))}
-        </div>
+        {!editingSupp && (
+          <>
+            <label style={frmLbl}>Add to</label>
+            <div style={{ display: 'flex', gap: 8, marginBottom: 20 }}>
+              {([['tobuy', 'To Buy list'], ['notstarted', 'My Plan directly']] as const).map(([val, lbl]) => (
+                <label key={val} style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 8, padding: '10px 12px', border: `1px solid ${form.startingStatus === val ? 'var(--color-primary)' : 'var(--color-border)'}`, borderRadius: 8, cursor: 'pointer', background: form.startingStatus === val ? 'var(--color-primary-pale)' : 'transparent' }}>
+                  <input type="radio" name="startingStatus" value={val} checked={form.startingStatus === val} onChange={() => setForm(f => ({ ...f, startingStatus: val }))} style={{ accentColor: 'var(--color-primary)', flexShrink: 0 }} />
+                  <span style={{ fontSize: '12px' }}>{lbl}</span>
+                </label>
+              ))}
+            </div>
+          </>
+        )}
 
-        <button onClick={handleSave} disabled={!form.name.trim() || saving} style={{ display: 'block', width: '100%', padding: '11px', background: 'var(--color-primary)', color: '#fff', border: 'none', borderRadius: 8, fontSize: '13px', fontWeight: 500, cursor: !form.name.trim() || saving ? 'not-allowed' : 'pointer', opacity: !form.name.trim() || saving ? 0.6 : 1 }}>
-          {saving ? 'Saving…' : 'Add supplement'}
+        <button
+          onClick={editingSupp ? handleEditSave : handleSave}
+          disabled={!form.name.trim() || saving}
+          style={{ display: 'block', width: '100%', padding: '11px', background: 'var(--color-primary)', color: '#fff', border: 'none', borderRadius: 8, fontSize: '13px', fontWeight: 500, cursor: !form.name.trim() || saving ? 'not-allowed' : 'pointer', opacity: !form.name.trim() || saving ? 0.6 : 1 }}
+        >
+          {saving ? 'Saving…' : editingSupp ? 'Save changes' : 'Add supplement'}
         </button>
       </BottomSheet>
     </div>

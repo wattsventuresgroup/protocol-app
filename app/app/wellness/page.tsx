@@ -16,6 +16,7 @@ type WellnessItem = {
   link_url: string | null
   source: string
   sort_order: number
+  created_at: string
 }
 
 const supabase = createClient()
@@ -81,6 +82,12 @@ export default function WellnessPage() {
   const [showAddSheet, setShowAddSheet] = useState(false)
   const [saving, setSaving] = useState(false)
   const [form, setForm] = useState(EMPTY_FORM)
+  const [editingItem, setEditingItem] = useState<WellnessItem | null>(null)
+  const [showSearch, setShowSearch] = useState(false)
+  const [searchQuery, setSearchQuery] = useState('')
+  const [searchFrom, setSearchFrom] = useState('')
+  const [searchTo, setSearchTo] = useState('')
+  const [searchApplied, setSearchApplied] = useState(false)
 
   useEffect(() => {
     async function load() {
@@ -121,8 +128,56 @@ export default function WellnessPage() {
     setForm(EMPTY_FORM)
   }
 
+  async function handleEditSave() {
+    if (!form.name.trim() || !userId || !editingItem) return
+    setSaving(true)
+    const updates = {
+      category: form.category,
+      name: form.name.trim(),
+      note: form.note.trim() || null,
+      cadence: form.cadence.trim() || null,
+      link_url: form.linkUrl.trim() || null,
+    }
+    await supabase.from('wellness_items').update(updates).eq('id', editingItem.id)
+    setItems(prev => prev.map(i => i.id === editingItem!.id ? { ...i, ...updates } : i))
+    setSaving(false)
+    setShowAddSheet(false)
+    setForm(EMPTY_FORM)
+    setEditingItem(null)
+  }
+
+  function openEditSheet(item: WellnessItem) {
+    setEditingItem(item)
+    setForm({
+      category: item.category,
+      name: item.name,
+      note: item.note ?? '',
+      cadence: item.cadence ?? '',
+      linkUrl: item.link_url ?? '',
+    })
+    setShowAddSheet(true)
+  }
+
+  function closeSheet() {
+    setShowAddSheet(false)
+    setForm(EMPTY_FORM)
+    setEditingItem(null)
+  }
+
+  const hasFilter = searchQuery.trim() || searchApplied
+  const filteredItems = hasFilter ? items.filter(item => {
+    if (searchQuery.trim() && !item.name.toLowerCase().includes(searchQuery.toLowerCase())) return false
+    if (searchApplied) {
+      const d = item.created_at.slice(0, 10)
+      if (searchFrom && d < searchFrom) return false
+      if (searchTo && d > searchTo) return false
+    }
+    return true
+  }) : items
+
+  const displayItems = hasFilter ? filteredItems : items
   const grouped = CATEGORIES
-    .map(cat => ({ cat, catItems: items.filter(i => i.category === cat) }))
+    .map(cat => ({ cat, catItems: displayItems.filter(i => i.category === cat) }))
     .filter(g => g.catItems.length > 0)
 
   if (loading) {
@@ -138,16 +193,67 @@ export default function WellnessPage() {
   return (
     <div style={{ padding: '24px 20px 0' }}>
       {/* Header */}
-      <div style={{ marginBottom: 24 }}>
-        <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: '20px', fontWeight: 400, color: 'var(--color-primary)', margin: 0, marginBottom: 4 }}>Wellness</h1>
-        <p style={{ fontSize: '12px', color: 'var(--color-text-secondary)', margin: 0 }}>Your wellness plan</p>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: showSearch ? 12 : 24 }}>
+        <div>
+          <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: '20px', fontWeight: 400, color: 'var(--color-primary)', margin: 0, marginBottom: 4 }}>Wellness</h1>
+          <p style={{ fontSize: '12px', color: 'var(--color-text-secondary)', margin: 0 }}>Your wellness plan</p>
+        </div>
+        <button
+          onClick={() => { setShowSearch(v => !v); setSearchQuery(''); setSearchFrom(''); setSearchTo(''); setSearchApplied(false) }}
+          style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '4px', color: showSearch ? 'var(--color-primary)' : 'var(--color-text-hint)', display: 'flex', alignItems: 'center' }}
+        >
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" />
+          </svg>
+        </button>
       </div>
 
+      {/* Search panel */}
+      {showSearch && (
+        <div style={{ marginBottom: 20 }}>
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={e => setSearchQuery(e.target.value)}
+            placeholder="Search wellness items..."
+            autoFocus
+            style={{ ...input, marginBottom: 8 }}
+          />
+          <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap', marginBottom: 8 }}>
+            <input
+              type="date"
+              value={searchFrom}
+              onChange={e => setSearchFrom(e.target.value)}
+              style={{ ...input, flex: 1, minWidth: 120, marginBottom: 0, fontSize: '12px', padding: '8px 10px' }}
+            />
+            <span style={{ fontSize: '12px', color: 'var(--color-text-hint)', flexShrink: 0 }}>to</span>
+            <input
+              type="date"
+              value={searchTo}
+              onChange={e => setSearchTo(e.target.value)}
+              style={{ ...input, flex: 1, minWidth: 120, marginBottom: 0, fontSize: '12px', padding: '8px 10px' }}
+            />
+            <button
+              onClick={() => setSearchApplied(true)}
+              style={{ padding: '8px 12px', background: 'var(--color-primary)', color: '#fff', border: 'none', borderRadius: 6, fontSize: '12px', cursor: 'pointer', flexShrink: 0 }}
+            >
+              Apply
+            </button>
+            <button
+              onClick={() => { setSearchFrom(''); setSearchTo(''); setSearchApplied(false) }}
+              style={{ padding: '8px 12px', background: 'none', color: 'var(--color-text-secondary)', border: '1px solid var(--color-border)', borderRadius: 6, fontSize: '12px', cursor: 'pointer', flexShrink: 0 }}
+            >
+              Clear
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Empty state */}
-      {items.length === 0 && (
+      {displayItems.length === 0 && (
         <div style={{ textAlign: 'center', padding: '48px 20px', color: 'var(--color-text-secondary)' }}>
-          <p style={{ fontSize: '14px', marginBottom: 6 }}>No wellness guidance yet</p>
-          <p style={{ fontSize: '12px', color: 'var(--color-text-hint)' }}>Tap + to add your first item</p>
+          <p style={{ fontSize: '14px', marginBottom: 6 }}>{hasFilter ? 'No items match your search' : 'No wellness guidance yet'}</p>
+          {!hasFilter && <p style={{ fontSize: '12px', color: 'var(--color-text-hint)' }}>Tap + to add your first item</p>}
         </div>
       )}
 
@@ -175,7 +281,7 @@ export default function WellnessPage() {
                         </p>
                       )}
                       {item.cadence && (
-                        <div style={{ marginTop: 5, paddingLeft: 0 }}>
+                        <div style={{ marginTop: 5 }}>
                           <span style={{ display: 'inline-block', padding: '2px 8px', background: 'var(--color-primary-light)', color: 'var(--color-primary-mid)', borderRadius: '100px', fontSize: '11px', lineHeight: '18px' }}>
                             {item.cadence}
                           </span>
@@ -189,18 +295,24 @@ export default function WellnessPage() {
                   {open && (
                     <div style={{ borderTop: '1px solid rgba(0,0,0,0.06)', padding: '12px 16px 16px' }}>
                       {item.note && (
-                        <p style={{ fontSize: '13px', color: 'var(--color-text-secondary)', lineHeight: 1.55, marginBottom: item.link_url ? 12 : 0 }}>
+                        <p style={{ fontSize: '13px', color: 'var(--color-text-secondary)', lineHeight: 1.55, marginBottom: 12 }}>
                           {item.note}
                         </p>
                       )}
                       {item.link_url && (
-                        <a href={item.link_url} target="_blank" rel="noopener noreferrer" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 14px', background: meta.bg, color: meta.color, borderRadius: 8, fontSize: '12px', fontWeight: 500, textDecoration: 'none', marginTop: item.note ? 0 : 4 }}>
+                        <a href={item.link_url} target="_blank" rel="noopener noreferrer" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 14px', background: meta.bg, color: meta.color, borderRadius: 8, fontSize: '12px', fontWeight: 500, textDecoration: 'none', marginBottom: 12 }}>
                           Open link →
                         </a>
                       )}
                       {!item.note && !item.link_url && (
-                        <p style={{ fontSize: '12px', color: 'var(--color-text-hint)' }}>No additional details.</p>
+                        <p style={{ fontSize: '12px', color: 'var(--color-text-hint)', marginBottom: 12 }}>No additional details.</p>
                       )}
+                      <button
+                        onClick={() => openEditSheet(item)}
+                        style={{ padding: '7px 12px', background: 'transparent', color: 'var(--color-text-secondary)', border: '1px solid var(--color-border)', borderRadius: 8, fontSize: '12px', cursor: 'pointer' }}
+                      >
+                        Edit
+                      </button>
                     </div>
                   )}
                 </div>
@@ -229,8 +341,8 @@ export default function WellnessPage() {
         +
       </button>
 
-      {/* Add wellness item sheet */}
-      <BottomSheet open={showAddSheet} onClose={() => { setShowAddSheet(false); setForm(EMPTY_FORM) }} title="Add wellness item">
+      {/* Add / Edit wellness item sheet */}
+      <BottomSheet open={showAddSheet} onClose={closeSheet} title={editingItem ? 'Edit wellness item' : 'Add wellness item'}>
         <label style={lbl}>Category *</label>
         <select value={form.category} onChange={e => setForm(f => ({ ...f, category: e.target.value as Category }))} style={input}>
           <option value="nutrition">Nutrition</option>
@@ -250,8 +362,12 @@ export default function WellnessPage() {
         <label style={lbl}>Link (optional)</label>
         <input type="url" value={form.linkUrl} onChange={e => setForm(f => ({ ...f, linkUrl: e.target.value }))} placeholder="https://" style={input} />
 
-        <button onClick={handleSave} disabled={!form.name.trim() || saving} style={{ display: 'block', width: '100%', padding: '11px', background: 'var(--color-primary)', color: '#fff', border: 'none', borderRadius: 8, fontSize: '13px', fontWeight: 500, cursor: !form.name.trim() || saving ? 'not-allowed' : 'pointer', opacity: !form.name.trim() || saving ? 0.6 : 1 }}>
-          {saving ? 'Saving…' : 'Add item'}
+        <button
+          onClick={editingItem ? handleEditSave : handleSave}
+          disabled={!form.name.trim() || saving}
+          style={{ display: 'block', width: '100%', padding: '11px', background: 'var(--color-primary)', color: '#fff', border: 'none', borderRadius: 8, fontSize: '13px', fontWeight: 500, cursor: !form.name.trim() || saving ? 'not-allowed' : 'pointer', opacity: !form.name.trim() || saving ? 0.6 : 1 }}
+        >
+          {saving ? 'Saving…' : editingItem ? 'Save changes' : 'Add item'}
         </button>
       </BottomSheet>
     </div>
