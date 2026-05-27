@@ -10,7 +10,9 @@
   "dependencies": {
     "@supabase/ssr": "^0.10.3",
     "@supabase/supabase-js": "^2.106.2",
+    "@types/pdf-parse": "^1.1.5",
     "next": "14.2.35",
+    "pdf-parse": "^2.4.5",
     "pdfjs-dist": "^5.7.284",
     "react": "^18",
     "react-dom": "^18"

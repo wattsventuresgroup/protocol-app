@@ -101,8 +101,8 @@ export default function ImportPage() {
 
   const fileRef = useRef<HTMLInputElement>(null)
   const [fileName, setFileName] = useState('')
-  const [pdfText, setPdfText] = useState('')
-  const [pdfLoading, setPdfLoading] = useState(false)
+  const [pdfFile, setPdfFile] = useState<File | null>(null)
+  const [loadingMsg, setLoadingMsg] = useState('')
 
   useEffect(() => {
     async function load() {
@@ -119,42 +119,15 @@ export default function ImportPage() {
     load()
   }, [])
 
-  async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+  function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
     if (!file) return
     setFileName(file.name)
-    setPdfText('')
+    setPdfFile(file)
     setErrorMsg('')
-    setPdfLoading(true)
-    try {
-      const arrayBuffer = await file.arrayBuffer()
-      const pdfjs = await import('pdfjs-dist')
-      pdfjs.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`
-      const pdf = await pdfjs.getDocument({ data: new Uint8Array(arrayBuffer) }).promise
-      const pageTexts: string[] = []
-      for (let i = 1; i <= pdf.numPages; i++) {
-        const page = await pdf.getPage(i)
-        const content = await page.getTextContent()
-        const text = (content.items as Array<{ str?: string }>)
-          .map(item => item.str ?? '')
-          .join(' ')
-        pageTexts.push(text)
-      }
-      const fullText = pageTexts.join('\n\n').trim()
-      if (fullText.length < 100) {
-        setErrorMsg("This PDF couldn't be read as text. Try copying and pasting the content instead.")
-      } else {
-        setPdfText(fullText)
-      }
-    } catch {
-      setErrorMsg("This PDF couldn't be read as text. Try copying and pasting the content instead.")
-    } finally {
-      setPdfLoading(false)
-    }
   }
 
-  const activeText = tab === 'paste' ? pasteText : pdfText
-  const canExtract = activeText.trim().length > 0 && phase !== 'loading' && !pdfLoading
+  const canExtract = (tab === 'paste' ? pasteText.trim().length > 0 : pdfFile !== null) && phase !== 'loading'
 
   async function handleExtract() {
     if (!canExtract) return
@@ -162,10 +135,28 @@ export default function ImportPage() {
     setErrorMsg('')
 
     try {
+      let text = pasteText
+
+      if (tab === 'pdf' && pdfFile) {
+        setLoadingMsg('Reading PDF…')
+        const formData = new FormData()
+        formData.append('file', pdfFile)
+        const pdfRes = await fetch('/api/extract-pdf', { method: 'POST', body: formData })
+        const pdfJson = await pdfRes.json()
+        if (!pdfRes.ok || pdfJson.error) {
+          setErrorMsg(pdfJson.error ?? "This PDF couldn't be read as text. Try copying and pasting the content instead.")
+          setPhase('error')
+          return
+        }
+        text = pdfJson.text
+      }
+
+      setLoadingMsg('Analyzing…')
+
       const res = await fetch('/api/extract', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ text: activeText }),
+        body: JSON.stringify({ text }),
       })
 
       if (!res.ok) {
@@ -347,22 +338,16 @@ export default function ImportPage() {
           ) : (
             <div>
               <div
-                onClick={() => !pdfLoading && fileRef.current?.click()}
-                style={{ border: '1.5px dashed var(--color-border)', borderRadius: 10, padding: '28px 20px', textAlign: 'center', cursor: pdfLoading ? 'default' : 'pointer' }}
+                onClick={() => fileRef.current?.click()}
+                style={{ border: '1.5px dashed var(--color-border)', borderRadius: 10, padding: '28px 20px', textAlign: 'center', cursor: 'pointer' }}
               >
-                {pdfLoading ? (
-                  <p style={{ fontSize: '13px', color: 'var(--color-text-secondary)' }}>Reading PDF…</p>
-                ) : (
-                  <>
-                    <p style={{ fontSize: '13px', color: 'var(--color-text-secondary)', marginBottom: 4 }}>
-                      {fileName || 'Tap to select a PDF'}
-                    </p>
-                    {!fileName && <p style={{ fontSize: '11px', color: 'var(--color-text-hint)' }}>Text-based PDFs only</p>}
-                    {pdfText && <p style={{ fontSize: '11px', color: '#1D9E75', marginTop: 6 }}>Ready to extract</p>}
-                  </>
-                )}
+                <p style={{ fontSize: '13px', color: 'var(--color-text-secondary)', marginBottom: 4 }}>
+                  {fileName || 'Tap to select a PDF'}
+                </p>
+                {!fileName && <p style={{ fontSize: '11px', color: 'var(--color-text-hint)' }}>Text-based PDFs only</p>}
+                {pdfFile && <p style={{ fontSize: '11px', color: '#1D9E75', marginTop: 6 }}>Ready</p>}
               </div>
-              <input ref={fileRef} type="file" accept=".pdf" onChange={handleFileChange} disabled={pdfLoading} style={{ display: 'none' }} />
+              <input ref={fileRef} type="file" accept=".pdf" onChange={handleFileChange} style={{ display: 'none' }} />
             </div>
           )}
 
@@ -380,7 +365,7 @@ export default function ImportPage() {
         </>
       ) : phase === 'loading' ? (
         <div style={{ textAlign: 'center', padding: '60px 20px' }}>
-          <p style={{ fontSize: '14px', color: 'var(--color-text-secondary)' }}>Reading your appointment…</p>
+          <p style={{ fontSize: '14px', color: 'var(--color-text-secondary)' }}>{loadingMsg || 'Processing…'}</p>
           <p style={{ fontSize: '12px', color: 'var(--color-text-hint)', marginTop: 6 }}>This may take a moment</p>
         </div>
       ) : phase === 'review' && extracted ? (
