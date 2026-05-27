@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import BottomSheet from '../components/BottomSheet'
+import HamburgerMenu from '../components/HamburgerMenu'
 
 type SupStatus = 'tobuy' | 'notstarted' | 'active' | 'paused' | 'discontinued'
 
@@ -10,6 +11,7 @@ type Supplement = {
   id: string
   patient_id: string
   name: string
+  type: string | null
   dose: string | null
   timing: string | null
   cadence: string | null
@@ -36,7 +38,7 @@ type RegimenEvent = {
 
 const supabase = createClient()
 
-const TIMING_ORDER = ['Morning', 'Midday', 'Afternoon', 'Evening', 'Bedtime', 'Multiple times daily', 'Anytime']
+const TIMING_ORDER = ['Morning', 'Midday', 'Evening', 'Bedtime', 'Multiple times daily', 'Anytime']
 
 const MULTI_DOSE_CADENCES = new Set(['Twice daily', 'Three times daily (with each meal)'])
 
@@ -66,6 +68,7 @@ const EVENT_LABELS: Record<string, string> = {
 
 const EMPTY_FORM = {
   name: '',
+  type: 'supplement' as string,
   dose: '',
   timing: '',
   cadence: '',
@@ -87,18 +90,22 @@ function formatDate(dateStr: string): string {
   return new Date(dateStr).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
 }
 
-function Pill({ children, amber }: { children: string; amber?: boolean }) {
+function TypeBadge({ type }: { type: string | null }) {
+  const t = type ?? 'supplement'
+  const styles: Record<string, { bg: string; color: string }> = {
+    supplement: { bg: 'var(--color-primary-light)', color: 'var(--color-primary-mid)' },
+    medication: { bg: 'var(--color-info-light)', color: 'var(--color-info)' },
+    nutrition: { bg: 'var(--color-warning-light)', color: 'var(--color-warning)' },
+  }
+  const labels: Record<string, string> = {
+    supplement: 'Supplement',
+    medication: 'Medication',
+    nutrition: 'Nutrition',
+  }
+  const s = styles[t] ?? styles.supplement
   return (
-    <span style={{
-      display: 'inline-block',
-      padding: '2px 8px',
-      background: amber ? 'var(--color-warning-light)' : 'var(--color-primary-light)',
-      color: amber ? 'var(--color-warning)' : 'var(--color-primary-mid)',
-      borderRadius: '100px',
-      fontSize: '11px',
-      lineHeight: '18px',
-    }}>
-      {children}
+    <span style={{ display: 'inline-block', padding: '1px 6px', borderRadius: 4, fontSize: '10px', fontWeight: 500, background: s.bg, color: s.color, flexShrink: 0 }}>
+      {labels[t] ?? t}
     </span>
   )
 }
@@ -151,7 +158,6 @@ export default function PlanPage() {
   const [loading, setLoading] = useState(true)
   const [userId, setUserId] = useState<string | null>(null)
   const [expandedId, setExpandedId] = useState<string | null>(null)
-  const [expandedToBuyId, setExpandedToBuyId] = useState<string | null>(null)
   const [showAddSheet, setShowAddSheet] = useState(false)
   const [showDiscontinued, setShowDiscontinued] = useState(false)
   const [discontinueId, setDiscontinueId] = useState<string | null>(null)
@@ -212,6 +218,7 @@ export default function PlanPage() {
       .insert({
         patient_id: userId,
         name: form.name.trim(),
+        type: form.type,
         dose: form.dose.trim() || null,
         timing: MULTI_DOSE_CADENCES.has(form.cadence) ? null : (form.timing || null),
         cadence: form.cadence || null,
@@ -238,6 +245,7 @@ export default function PlanPage() {
     setSaving(true)
     const updates = {
       name: form.name.trim(),
+      type: form.type,
       dose: form.dose.trim() || null,
       timing: MULTI_DOSE_CADENCES.has(form.cadence) ? null : (form.timing || null),
       cadence: form.cadence || null,
@@ -268,7 +276,6 @@ export default function PlanPage() {
     await logEvent(supp.id, supp.name, 'removed')
     await supabase.from('supplements').delete().eq('id', supp.id)
     setSupplements(prev => prev.filter(s => s.id !== supp.id))
-    setExpandedToBuyId(null)
     setDeleteConfirmId(null)
   }
 
@@ -276,6 +283,7 @@ export default function PlanPage() {
     setEditingSupp(supp)
     setForm({
       name: supp.name,
+      type: supp.type ?? 'supplement',
       dose: supp.dose ?? '',
       timing: supp.timing ?? '',
       cadence: supp.cadence ?? '',
@@ -322,73 +330,42 @@ export default function PlanPage() {
     return true
   }) : []
 
-  function renderCollapsedActions(supp: Supplement) {
-    const btnBase: React.CSSProperties = {
-      padding: '4px 10px',
-      background: 'transparent',
-      borderRadius: 6,
-      fontSize: '11px',
-      cursor: 'pointer',
-      marginTop: 6,
-      marginLeft: 16,
-      fontFamily: 'var(--font-sans)',
-    }
-    if (supp.status === 'notstarted') {
-      return (
-        <button
-          onClick={e => { e.stopPropagation(); setStatus(supp, 'active', 'started') }}
-          style={{ ...btnBase, color: '#1D9E75', border: '1px solid #1D9E75', fontWeight: 500 }}
-        >
-          Mark as started
-        </button>
-      )
-    }
-    if (supp.status === 'paused') {
-      return (
-        <button
-          onClick={e => { e.stopPropagation(); setStatus(supp, 'active', 'resumed') }}
-          style={{ ...btnBase, color: 'var(--color-primary)', border: '1px solid var(--color-primary)' }}
-        >
-          Resume
-        </button>
-      )
-    }
-    return null
-  }
-
   function renderCard(supp: Supplement) {
     const open = expandedId === supp.id
     const confirming = discontinueId === supp.id
+    const secondaryLine = [supp.dose, supp.cadence, supp.intake_conditions].filter(Boolean).join(' · ')
 
     return (
       <div key={supp.id} style={cardBase}>
         <div
           onClick={() => setExpandedId(open ? null : supp.id)}
-          style={{ cursor: 'pointer', padding: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}
+          style={{ cursor: 'pointer', padding: '14px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}
         >
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: secondaryLine ? 4 : 0 }}>
               <div style={{ width: 8, height: 8, borderRadius: '50%', flexShrink: 0, background: dotColor(supp.status) }} />
-              <span style={{ fontSize: '14px', fontWeight: 500, color: 'var(--color-text-primary)' }}>{supp.name}</span>
+              <TypeBadge type={supp.type} />
+              <span style={{ fontSize: '15px', fontWeight: 500, color: 'var(--color-text-primary)', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{supp.name}</span>
             </div>
-            {(supp.dose || supp.timing || supp.cadence) && (
-              <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', paddingLeft: 16, marginBottom: 2 }}>
-                {supp.dose && <Pill>{supp.dose}</Pill>}
-                {supp.timing && <Pill>{supp.timing}</Pill>}
-                {supp.cadence && <Pill>{supp.cadence}</Pill>}
-              </div>
+            {secondaryLine && (
+              <p style={{ fontSize: '13px', color: 'var(--color-text-secondary)', margin: 0, paddingLeft: 14 }}>{secondaryLine}</p>
             )}
-            {supp.titration_instructions && (
-              <div style={{ paddingLeft: 16, marginTop: 4 }}>
-                <Pill amber>Titration</Pill>
-              </div>
+            {supp.status === 'notstarted' && (
+              <button
+                onClick={e => { e.stopPropagation(); setStatus(supp, 'active', 'started') }}
+                style={{ padding: '4px 10px', background: 'transparent', color: '#1D9E75', border: '1px solid #1D9E75', borderRadius: 6, fontSize: '11px', cursor: 'pointer', marginTop: 6, marginLeft: 14, fontFamily: 'var(--font-sans)', fontWeight: 500 }}
+              >
+                Mark as started
+              </button>
             )}
-            {supp.notes_for_patient && (
-              <p style={{ paddingLeft: 16, fontSize: '12px', color: 'var(--color-text-secondary)', marginTop: 4, lineHeight: 1.45, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' as const, overflow: 'hidden' }}>
-                {supp.notes_for_patient}
-              </p>
+            {supp.status === 'paused' && (
+              <button
+                onClick={e => { e.stopPropagation(); setStatus(supp, 'active', 'resumed') }}
+                style={{ padding: '4px 10px', background: 'transparent', color: 'var(--color-primary)', border: '1px solid var(--color-primary)', borderRadius: 6, fontSize: '11px', cursor: 'pointer', marginTop: 6, marginLeft: 14, fontFamily: 'var(--font-sans)' }}
+              >
+                Resume
+              </button>
             )}
-            {renderCollapsedActions(supp)}
           </div>
           <span style={{ fontSize: '16px', color: 'var(--color-text-hint)', transform: open ? 'rotate(90deg)' : 'none', transition: 'transform 0.15s', flexShrink: 0, marginTop: 1, lineHeight: 1 }}>›</span>
         </div>
@@ -401,15 +378,14 @@ export default function PlanPage() {
                 <span style={{ fontSize: '12px' }}>{supp.titration_instructions}</span>
               </div>
             )}
-            {supp.notes_for_patient && (
-              <p style={{ fontSize: '12px', color: 'var(--color-text-secondary)', marginBottom: 10, lineHeight: 1.5 }}>{supp.notes_for_patient}</p>
-            )}
-            {supp.intake_conditions && (
-              <p style={{ fontSize: '12px', color: 'var(--color-text-secondary)', marginBottom: 10 }}>Take: {supp.intake_conditions}</p>
+            {supp.notes_for_patient ? (
+              <p style={{ fontSize: '13px', color: 'var(--color-text-secondary)', marginBottom: 12, lineHeight: 1.5 }}>{supp.notes_for_patient}</p>
+            ) : (
+              <p style={{ fontSize: '12px', color: 'var(--color-text-hint)', marginBottom: 12 }}>No notes.</p>
             )}
 
             {!confirming && (
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 4 }}>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
                 {supp.status === 'notstarted' && (
                   <button onClick={() => setStatus(supp, 'active', 'started')} style={{ padding: '7px 12px', background: 'transparent', color: '#1D9E75', border: '1px solid #1D9E75', borderRadius: 8, fontSize: '12px', fontWeight: 500, cursor: 'pointer' }}>
                     Mark as started
@@ -440,7 +416,7 @@ export default function PlanPage() {
             )}
 
             {confirming && (
-              <div style={{ background: 'var(--color-danger-light)', borderRadius: 8, padding: '12px', marginTop: 4 }}>
+              <div style={{ background: 'var(--color-danger-light)', borderRadius: 8, padding: '12px' }}>
                 <p style={{ fontSize: '13px', fontWeight: 500, color: 'var(--color-danger)', marginBottom: 8 }}>Discontinue {supp.name}?</p>
                 <input
                   type="text"
@@ -466,29 +442,21 @@ export default function PlanPage() {
   }
 
   function renderToBuyCard(supp: Supplement) {
-    const open = expandedToBuyId === supp.id
     const confirming = deleteConfirmId === supp.id
 
     return (
       <div key={supp.id} style={cardBase}>
-        <div
-          onClick={() => { setExpandedToBuyId(open ? null : supp.id); setDeleteConfirmId(null) }}
-          style={{ cursor: 'pointer', padding: '14px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}
-        >
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <span style={{ fontSize: '14px', fontWeight: 500, display: 'block', marginBottom: 2 }}>{supp.name}</span>
-            {supp.dose && <span style={{ fontSize: '12px', color: 'var(--color-text-secondary)' }}>{supp.dose}</span>}
+        <div style={{ padding: '14px 16px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: supp.dose ? 4 : 10 }}>
+            <TypeBadge type={supp.type} />
+            <span style={{ fontSize: '14px', fontWeight: 500, color: 'var(--color-text-primary)' }}>{supp.name}</span>
           </div>
-          <span style={{ fontSize: '16px', color: 'var(--color-text-hint)', transform: open ? 'rotate(90deg)' : 'none', transition: 'transform 0.15s', flexShrink: 0, lineHeight: 1 }}>›</span>
-        </div>
+          {supp.dose && (
+            <p style={{ fontSize: '12px', color: 'var(--color-text-secondary)', margin: '0 0 10px' }}>{supp.dose}</p>
+          )}
 
-        {open && !confirming && (
-          <div style={{ borderTop: '1px solid rgba(0,0,0,0.06)', padding: '12px 16px 16px' }}>
-            {supp.timing && <p style={{ fontSize: '12px', color: 'var(--color-text-secondary)', marginBottom: 5 }}>Time: {supp.timing}</p>}
-            {supp.cadence && <p style={{ fontSize: '12px', color: 'var(--color-text-secondary)', marginBottom: 5 }}>Cadence: {supp.cadence}</p>}
-            {supp.intake_conditions && <p style={{ fontSize: '12px', color: 'var(--color-text-secondary)', marginBottom: 5 }}>Take: {supp.intake_conditions}</p>}
-            {supp.notes_for_patient && <p style={{ fontSize: '12px', color: 'var(--color-text-secondary)', marginBottom: 8, lineHeight: 1.45 }}>{supp.notes_for_patient}</p>}
-            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 4 }}>
+          {!confirming && (
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
               {supp.buy_link && (
                 <a href={supp.buy_link} target="_blank" rel="noopener noreferrer" style={{ padding: '5px 11px', background: 'var(--color-gold-bg)', color: 'var(--color-gold)', borderRadius: 6, fontSize: '11px', fontWeight: 500, textDecoration: 'none' }}>
                   {supp.purchase_source ?? 'Buy'} →
@@ -497,32 +465,32 @@ export default function PlanPage() {
               <a href={`https://www.google.com/search?q=${encodeURIComponent(supp.name)}`} target="_blank" rel="noopener noreferrer" style={{ padding: '5px 11px', background: 'var(--color-primary-light)', color: 'var(--color-primary-mid)', borderRadius: 6, fontSize: '11px', textDecoration: 'none' }}>
                 Search
               </a>
-              <button onClick={e => { e.stopPropagation(); setStatus(supp, 'notstarted', 'purchased') }} style={{ padding: '5px 11px', background: 'transparent', color: 'var(--color-text-secondary)', border: '1px solid var(--color-border)', borderRadius: 6, fontSize: '11px', cursor: 'pointer' }}>
+              <button onClick={() => setStatus(supp, 'notstarted', 'purchased')} style={{ padding: '5px 11px', background: 'transparent', color: 'var(--color-text-secondary)', border: '1px solid var(--color-border)', borderRadius: 6, fontSize: '11px', cursor: 'pointer' }}>
                 Got it
               </button>
-              <button onClick={e => { e.stopPropagation(); openEditSheet(supp) }} style={{ padding: '5px 11px', background: 'transparent', color: 'var(--color-text-secondary)', border: '1px solid var(--color-border)', borderRadius: 6, fontSize: '11px', cursor: 'pointer' }}>
+              <button onClick={() => openEditSheet(supp)} style={{ padding: '5px 11px', background: 'transparent', color: 'var(--color-text-secondary)', border: '1px solid var(--color-border)', borderRadius: 6, fontSize: '11px', cursor: 'pointer' }}>
                 Edit
               </button>
-              <button onClick={e => { e.stopPropagation(); setDeleteConfirmId(supp.id) }} style={{ padding: '5px 11px', background: 'transparent', color: 'var(--color-danger)', border: '1px solid var(--color-danger)', borderRadius: 6, fontSize: '11px', cursor: 'pointer' }}>
+              <button onClick={() => setDeleteConfirmId(supp.id)} style={{ padding: '5px 11px', background: 'transparent', color: 'var(--color-danger)', border: '1px solid var(--color-danger)', borderRadius: 6, fontSize: '11px', cursor: 'pointer' }}>
                 Delete
               </button>
             </div>
-          </div>
-        )}
+          )}
 
-        {open && confirming && (
-          <div style={{ borderTop: '1px solid rgba(0,0,0,0.06)', padding: '12px 16px 16px' }}>
-            <p style={{ fontSize: '13px', fontWeight: 500, color: 'var(--color-danger)', marginBottom: 12 }}>Remove {supp.name} from your list?</p>
-            <div style={{ display: 'flex', gap: 8 }}>
-              <button onClick={e => { e.stopPropagation(); setDeleteConfirmId(null) }} style={{ flex: 1, padding: '8px', background: 'none', border: '1px solid var(--color-border)', borderRadius: 8, fontSize: '12px', cursor: 'pointer', color: 'var(--color-text-secondary)' }}>
-                Cancel
-              </button>
-              <button onClick={e => { e.stopPropagation(); handleDeleteSupplement(supp) }} style={{ flex: 1, padding: '8px', background: 'var(--color-danger)', color: '#fff', border: 'none', borderRadius: 8, fontSize: '12px', fontWeight: 500, cursor: 'pointer' }}>
-                Remove
-              </button>
+          {confirming && (
+            <div style={{ background: 'var(--color-danger-light)', borderRadius: 8, padding: '12px' }}>
+              <p style={{ fontSize: '13px', fontWeight: 500, color: 'var(--color-danger)', marginBottom: 12 }}>Remove {supp.name}?</p>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button onClick={() => setDeleteConfirmId(null)} style={{ flex: 1, padding: '8px', background: 'none', border: '1px solid var(--color-border)', borderRadius: 8, fontSize: '12px', cursor: 'pointer', color: 'var(--color-text-secondary)' }}>
+                  Cancel
+                </button>
+                <button onClick={() => handleDeleteSupplement(supp)} style={{ flex: 1, padding: '8px', background: 'var(--color-danger)', color: '#fff', border: 'none', borderRadius: 8, fontSize: '12px', fontWeight: 500, cursor: 'pointer' }}>
+                  Remove
+                </button>
+              </div>
             </div>
-          </div>
-        )}
+          )}
+        </div>
       </div>
     )
   }
@@ -538,40 +506,57 @@ export default function PlanPage() {
 
   return (
     <div style={{ padding: '16px 20px 0' }}>
-      {/* Toolbar */}
-      <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 8, marginBottom: showSearch ? 12 : 20 }}>
-        {!showSearch && (
-          <a href="/app/import" style={{ fontSize: '11px', color: 'var(--color-primary-mid)', textDecoration: 'none', padding: '5px 10px', border: '1px solid var(--color-primary-mid)', borderRadius: 6 }}>
-            Import
-          </a>
-        )}
-        <button
-          onClick={() => showSearch ? closeSearch() : setShowSearch(true)}
-          style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '4px', color: showSearch ? 'var(--color-primary)' : 'var(--color-text-hint)', display: 'flex', alignItems: 'center' }}
-        >
-          {showSearch ? (
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
-            </svg>
-          ) : (
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" />
-            </svg>
+      {/* Page header */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: showSearch ? 12 : 20 }}>
+        <div>
+          <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: '20px', fontWeight: 400, color: 'var(--color-primary)', lineHeight: 1.15, margin: '0 0 2px' }}>
+            My Plan
+          </h1>
+          <p style={{ fontSize: '12px', color: 'var(--color-text-secondary)', margin: 0 }}>Your daily protocol</p>
+        </div>
+        <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+          {!showSearch && (
+            <a href="/app/import" style={{ fontSize: '11px', color: 'var(--color-primary-mid)', textDecoration: 'none', padding: '5px 10px', border: '1px solid var(--color-primary-mid)', borderRadius: 6 }}>
+              Import
+            </a>
           )}
-        </button>
+          <button
+            onClick={() => showSearch ? closeSearch() : setShowSearch(true)}
+            style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '6px', color: showSearch ? 'var(--color-primary)' : 'var(--color-text-hint)', display: 'flex', alignItems: 'center' }}
+          >
+            {showSearch ? (
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+              </svg>
+            ) : (
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" />
+              </svg>
+            )}
+          </button>
+          <HamburgerMenu />
+        </div>
       </div>
 
       {/* Search panel */}
       {showSearch && (
         <div style={{ marginBottom: 20 }}>
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={e => { setSearchQuery(e.target.value); setExpandedSearchId(null) }}
-            placeholder="Search supplements..."
-            autoFocus
-            style={{ ...input, marginBottom: 8 }}
-          />
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8 }}>
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={e => { setSearchQuery(e.target.value); setExpandedSearchId(null) }}
+              placeholder="Search supplements..."
+              autoFocus
+              style={{ ...input, marginBottom: 0, flex: 1 }}
+            />
+            <button
+              onClick={closeSearch}
+              style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-primary)', fontSize: '13px', fontWeight: 500, padding: '4px 0', flexShrink: 0, fontFamily: 'var(--font-sans)' }}
+            >
+              Cancel
+            </button>
+          </div>
           <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap', marginBottom: 8 }}>
             <input
               type="date"
@@ -677,7 +662,7 @@ export default function PlanPage() {
           {discSupps.length > 0 && (
             <section style={{ marginBottom: 32 }}>
               <button onClick={() => setShowDiscontinued(v => !v)} style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, padding: '4px 0', marginBottom: showDiscontinued ? 10 : 0 }}>
-                <span style={sectionHead}>Discontinued ({discSupps.length})</span>
+                <span style={sectionHead}>Discontinued · {discSupps.length}</span>
                 <span style={{ fontSize: '14px', color: 'var(--color-text-hint)', display: 'inline-block', transform: showDiscontinued ? 'rotate(90deg)' : 'none', transition: 'transform 0.15s', lineHeight: 1 }}>›</span>
               </button>
               {showDiscontinued && discSupps.map(supp => (
@@ -716,6 +701,13 @@ export default function PlanPage() {
         <label style={frmLbl}>Name *</label>
         <input type="text" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="e.g. Magnesium Glycinate" style={input} />
 
+        <label style={frmLbl}>Type</label>
+        <select value={form.type} onChange={e => setForm(f => ({ ...f, type: e.target.value }))} style={input}>
+          <option value="supplement">Supplement</option>
+          <option value="medication">Medication</option>
+          <option value="nutrition">Nutrition</option>
+        </select>
+
         <label style={frmLbl}>Dose</label>
         <input type="text" value={form.dose} onChange={e => setForm(f => ({ ...f, dose: e.target.value }))} placeholder="e.g. 400mg, 2 capsules" style={input} />
 
@@ -732,7 +724,7 @@ export default function PlanPage() {
             <label style={frmLbl}>Time of Day</label>
             <select value={form.timing} onChange={e => setForm(f => ({ ...f, timing: e.target.value }))} style={input}>
               <option value="">No preference</option>
-              {['Morning', 'Midday', 'Afternoon', 'Evening', 'Bedtime', 'As needed'].map(t => <option key={t}>{t}</option>)}
+              {['Morning', 'Midday', 'Evening', 'Bedtime', 'As needed'].map(t => <option key={t}>{t}</option>)}
             </select>
           </>
         )}

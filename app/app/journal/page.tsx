@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import BottomSheet from '../components/BottomSheet'
+import HamburgerMenu from '../components/HamburgerMenu'
 
 type Symptom = { name: string; scale: string }
 
@@ -72,6 +73,41 @@ function formatEntryDate(dateStr: string): string {
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
 }
 
+function getEntryPreview(entry: JournalEntry): string {
+  if (entry.text) return entry.text
+  if (entry.symptoms) {
+    const pairs = Object.entries(entry.symptoms)
+    if (pairs.length > 0) return pairs.map(([k, v]) => `${k}: ${v}`).join(', ')
+  }
+  return ''
+}
+
+function BarChartIcon() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--color-primary)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <line x1="18" y1="20" x2="18" y2="10" /><line x1="12" y1="20" x2="12" y2="4" /><line x1="6" y1="20" x2="6" y2="14" />
+    </svg>
+  )
+}
+
+function PencilIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--color-primary)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 20h9" /><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
+    </svg>
+  )
+}
+
+function StethoscopeIcon() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--color-primary)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M4.8 2.3A.3.3 0 1 0 5 2H4a2 2 0 0 0-2 2v5a6 6 0 0 0 6 6v0a6 6 0 0 0 6-6V4a2 2 0 0 0-2-2h-1a.2.2 0 1 0 .3.3" />
+      <path d="M8 15v1a6 6 0 0 0 6 6v0a6 6 0 0 0 6-6v-4" />
+      <circle cx="20" cy="10" r="2" />
+    </svg>
+  )
+}
+
 export default function JournalPage() {
   const [config, setConfig] = useState<JournalConfig | null | undefined>(undefined)
   const [entries, setEntries] = useState<JournalEntry[]>([])
@@ -81,8 +117,9 @@ export default function JournalPage() {
   const [showCheckin, setShowCheckin] = useState(false)
   const [noteFormType, setNoteFormType] = useState<'symptom' | 'care' | null>(null)
   const [showInlineSetup, setShowInlineSetup] = useState(false)
+  const [showTypeSelector, setShowTypeSelector] = useState(false)
   const [saving, setSaving] = useState(false)
-  const [selectedEntry, setSelectedEntry] = useState<JournalEntry | null>(null)
+  const [expandedEntryId, setExpandedEntryId] = useState<string | null>(null)
   const [editingEntry, setEditingEntry] = useState<JournalEntry | null>(null)
   const [editDate, setEditDate] = useState('')
   const [editText, setEditText] = useState('')
@@ -222,7 +259,7 @@ export default function JournalPage() {
   async function handleDeleteEntry(entry: JournalEntry) {
     await supabase.from('journal_entries').delete().eq('id', entry.id)
     setEntries(prev => prev.filter(e => e.id !== entry.id))
-    setSelectedEntry(null)
+    setExpandedEntryId(null)
   }
 
   function openEditEntry(entry: JournalEntry) {
@@ -241,9 +278,6 @@ export default function JournalPage() {
     }
     await supabase.from('journal_entries').update(updates).eq('id', editingEntry.id)
     setEntries(prev => prev.map(e => e.id === editingEntry!.id ? { ...e, ...updates } : e))
-    if (selectedEntry?.id === editingEntry.id) {
-      setSelectedEntry(prev => prev ? { ...prev, ...updates } : null)
-    }
     setSaving(false)
     setEditingEntry(null)
   }
@@ -304,36 +338,52 @@ export default function JournalPage() {
 
   return (
     <div style={{ padding: '16px 20px 32px' }}>
-      {/* Toolbar */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-        <p style={{ fontSize: '12px', color: 'var(--color-text-hint)', margin: 0 }}>Private to you</p>
-        <button
-          onClick={() => showSearch ? closeSearch() : setShowSearch(true)}
-          style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '4px', color: showSearch ? 'var(--color-primary)' : 'var(--color-text-hint)', display: 'flex', alignItems: 'center' }}
-        >
-          {showSearch ? (
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
-            </svg>
-          ) : (
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" />
-            </svg>
-          )}
-        </button>
+      {/* Page header */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: showSearch ? 12 : 20 }}>
+        <div>
+          <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: '20px', fontWeight: 400, color: 'var(--color-primary)', lineHeight: 1.15, margin: '0 0 2px' }}>
+            Journal
+          </h1>
+          <p style={{ fontSize: '12px', color: 'var(--color-text-secondary)', margin: 0 }}>Private — only you can see this</p>
+        </div>
+        <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+          <button
+            onClick={() => showSearch ? closeSearch() : setShowSearch(true)}
+            style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '6px', color: showSearch ? 'var(--color-primary)' : 'var(--color-text-hint)', display: 'flex', alignItems: 'center' }}
+          >
+            {showSearch ? (
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+              </svg>
+            ) : (
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" />
+              </svg>
+            )}
+          </button>
+          <HamburgerMenu />
+        </div>
       </div>
 
       {/* Search panel */}
       {showSearch && (
         <div style={{ marginBottom: 20 }}>
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={e => setSearchQuery(e.target.value)}
-            placeholder="Search entries..."
-            autoFocus
-            style={{ ...input, marginBottom: 8 }}
-          />
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8 }}>
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
+              placeholder="Search entries..."
+              autoFocus
+              style={{ ...input, marginBottom: 0, flex: 1 }}
+            />
+            <button
+              onClick={closeSearch}
+              style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-primary)', fontSize: '13px', fontWeight: 500, padding: '4px 0', flexShrink: 0, fontFamily: 'var(--font-sans)' }}
+            >
+              Cancel
+            </button>
+          </div>
           <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
             <input
               type="date"
@@ -364,37 +414,21 @@ export default function JournalPage() {
         </div>
       )}
 
-      {/* Action buttons */}
+      {/* New entry button + config link */}
       {!showForms && (
         <div style={{ marginBottom: 20 }}>
-          <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
-            <button
-              onClick={() => config ? setShowCheckin(true) : setShowInlineSetup(true)}
-              style={{ flex: 1, padding: '10px', background: 'var(--color-primary)', color: '#fff', border: 'none', borderRadius: 8, fontSize: '13px', fontWeight: 500, cursor: 'pointer', fontFamily: 'var(--font-sans)' }}
-            >
-              New check-in
-            </button>
-            <button
-              onClick={() => setNoteFormType('symptom')}
-              style={{ flex: 1, padding: '10px', background: 'var(--color-surface-raised)', color: 'var(--color-primary)', border: '1px solid var(--color-primary)', borderRadius: 8, fontSize: '13px', cursor: 'pointer', fontFamily: 'var(--font-sans)' }}
-            >
-              Log symptom
-            </button>
-          </div>
           <button
-            onClick={() => setNoteFormType('care')}
-            style={{ width: '100%', padding: '10px', background: 'var(--color-surface-raised)', color: 'var(--color-text-secondary)', border: '1px solid var(--color-border)', borderRadius: 8, fontSize: '13px', cursor: 'pointer', fontFamily: 'var(--font-sans)' }}
+            onClick={() => setShowTypeSelector(true)}
+            style={{ width: '100%', padding: '11px', background: 'var(--color-primary)', color: '#fff', border: 'none', borderRadius: 8, fontSize: '13px', fontWeight: 500, cursor: 'pointer', fontFamily: 'var(--font-sans)', marginBottom: 10 }}
           >
-            Log care visit
+            + New entry
           </button>
-          <div style={{ marginTop: 12 }}>
-            <button
-              onClick={() => setShowConfigSheet(true)}
-              style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '12px', color: config ? 'var(--color-text-hint)' : 'var(--color-primary)', padding: 0, fontFamily: 'var(--font-sans)', textDecoration: config ? 'none' : 'underline' }}
-            >
-              {config ? 'Configure check-ins' : 'Set up check-ins →'}
-            </button>
-          </div>
+          <button
+            onClick={() => setShowConfigSheet(true)}
+            style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '12px', color: config ? 'var(--color-text-hint)' : 'var(--color-primary)', padding: 0, fontFamily: 'var(--font-sans)' }}
+          >
+            {config ? 'Configure check-ins' : 'Set up check-ins →'}
+          </button>
         </div>
       )}
 
@@ -472,7 +506,7 @@ export default function JournalPage() {
         </div>
       )}
 
-      {/* Note form (symptom or care visit) */}
+      {/* Note form */}
       {noteFormType !== null && (
         <div style={{ background: 'var(--color-surface-raised)', border: '1px solid var(--color-border)', borderRadius: 12, padding: '16px', marginBottom: 20 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
@@ -507,102 +541,139 @@ export default function JournalPage() {
       {filteredEntries.length === 0 ? (
         <div style={{ textAlign: 'center', padding: '40px 16px', color: 'var(--color-text-secondary)' }}>
           <p style={{ fontSize: '14px', marginBottom: 6 }}>{hasFilter ? 'No entries match your search' : 'No entries yet'}</p>
-          {!hasFilter && <p style={{ fontSize: '12px', color: 'var(--color-text-hint)' }}>Tap a button above to start</p>}
+          {!hasFilter && <p style={{ fontSize: '12px', color: 'var(--color-text-hint)' }}>Tap + New entry to start</p>}
         </div>
       ) : (
         <div>
-          {filteredEntries.map(entry => (
-            <div
-              key={entry.id}
-              onClick={() => setSelectedEntry(entry)}
-              style={{ background: 'var(--color-surface-raised)', borderRadius: 12, padding: '14px', marginBottom: 8, border: '1px solid var(--color-border)', cursor: 'pointer' }}
-            >
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                <span style={{ fontSize: '12px', color: 'var(--color-text-secondary)' }}>{formatEntryDate(entry.entry_date)}</span>
-                <span style={{ fontSize: '11px', fontWeight: 500, padding: '2px 8px', borderRadius: '100px', background: entry.entry_type === 'checkin' ? 'var(--color-primary-light)' : 'var(--color-surface)', color: entry.entry_type === 'checkin' ? 'var(--color-primary)' : 'var(--color-text-secondary)', border: entry.entry_type === 'checkin' ? 'none' : '1px solid var(--color-border)' }}>
-                  {entry.entry_type === 'checkin' ? 'Check-in' : 'Note'}
-                </span>
+          {filteredEntries.map(entry => {
+            const expanded = expandedEntryId === entry.id
+            const isEditing = editingEntry?.id === entry.id
+            const preview = getEntryPreview(entry)
+            return (
+              <div key={entry.id} style={{ background: 'var(--color-surface-raised)', borderRadius: 12, marginBottom: 8, border: '1px solid var(--color-border)', overflow: 'hidden' }}>
+                {/* Collapsed row */}
+                <div
+                  onClick={() => { setExpandedEntryId(expanded ? null : entry.id); if (!expanded) setEditingEntry(null) }}
+                  style={{ cursor: 'pointer', padding: '14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}
+                >
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: preview ? 4 : 0 }}>
+                      <span style={{ fontSize: '11px', fontWeight: 500, padding: '2px 7px', borderRadius: '100px', background: entry.entry_type === 'checkin' ? 'var(--color-primary-light)' : 'var(--color-surface)', color: entry.entry_type === 'checkin' ? 'var(--color-primary)' : 'var(--color-text-secondary)', border: entry.entry_type === 'checkin' ? 'none' : '1px solid var(--color-border)', flexShrink: 0 }}>
+                        {entry.entry_type === 'checkin' ? 'Check-in' : 'Note'}
+                      </span>
+                      <span style={{ fontSize: '12px', color: 'var(--color-text-hint)', flexShrink: 0 }}>{formatEntryDate(entry.entry_date)}</span>
+                    </div>
+                    {preview && (
+                      <p style={{ fontSize: '13px', color: 'var(--color-text-primary)', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {preview}
+                      </p>
+                    )}
+                  </div>
+                  <span style={{ fontSize: '16px', color: 'var(--color-text-hint)', transform: expanded ? 'rotate(90deg)' : 'none', transition: 'transform 0.15s', flexShrink: 0, lineHeight: 1 }}>›</span>
+                </div>
+
+                {/* Expanded content */}
+                {expanded && !isEditing && (
+                  <div style={{ borderTop: '1px solid var(--color-border)', padding: '12px 14px 14px' }}>
+                    {entry.symptoms && (
+                      <div style={{ marginBottom: 10 }}>
+                        {Object.entries(entry.symptoms).map(([name, rating]) => (
+                          <div key={name} style={{ fontSize: '13px', marginBottom: 5, display: 'flex', gap: 8, alignItems: 'baseline' }}>
+                            <span style={{ color: 'var(--color-text-secondary)', minWidth: 80 }}>{name}</span>
+                            <span style={{ fontWeight: 500, color: 'var(--color-text-primary)' }}>{rating}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {entry.text && (
+                      <p style={{ fontSize: '13px', color: 'var(--color-text-primary)', lineHeight: 1.6, marginBottom: 12 }}>{entry.text}</p>
+                    )}
+                    {entry.linked_supplement_id && suppMap[entry.linked_supplement_id] && (
+                      <div style={{ fontSize: '12px', color: 'var(--color-text-hint)', marginBottom: 12 }}>
+                        Linked: {suppMap[entry.linked_supplement_id]}
+                      </div>
+                    )}
+                    <div style={{ display: 'flex', gap: 8, paddingTop: 8, borderTop: '1px solid var(--color-border)' }}>
+                      <button
+                        onClick={() => openEditEntry(entry)}
+                        style={{ flex: 1, padding: '8px', background: 'none', border: '1px solid var(--color-border)', borderRadius: 8, fontSize: '13px', cursor: 'pointer', color: 'var(--color-text-secondary)', fontFamily: 'var(--font-sans)' }}
+                      >
+                        Edit
+                      </button>
+                      <button
+                        onClick={() => handleDeleteEntry(entry)}
+                        style={{ flex: 1, padding: '8px', background: 'none', border: '1px solid var(--color-danger)', borderRadius: 8, fontSize: '13px', cursor: 'pointer', color: 'var(--color-danger)', fontFamily: 'var(--font-sans)' }}
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Inline edit form */}
+                {expanded && isEditing && (
+                  <div style={{ borderTop: '1px solid var(--color-border)', padding: '12px 14px 14px' }}>
+                    <label style={lbl}>Date</label>
+                    <input type="date" value={editDate} onChange={e => setEditDate(e.target.value)} style={input} />
+                    <label style={lbl}>Notes</label>
+                    <textarea value={editText} onChange={e => setEditText(e.target.value)} rows={4} style={{ ...input, resize: 'vertical' as const }} />
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <button onClick={() => setEditingEntry(null)} style={{ flex: 1, padding: '10px', background: 'none', border: '1px solid var(--color-border)', borderRadius: 8, fontSize: '13px', cursor: 'pointer', color: 'var(--color-text-secondary)', fontFamily: 'var(--font-sans)' }}>
+                        Cancel
+                      </button>
+                      <button onClick={saveEditEntry} disabled={saving} style={{ flex: 2, padding: '10px', background: 'var(--color-primary)', color: '#fff', border: 'none', borderRadius: 8, fontSize: '13px', fontWeight: 500, cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? 0.7 : 1, fontFamily: 'var(--font-sans)' }}>
+                        {saving ? 'Saving…' : 'Save changes'}
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
-              {entry.symptoms && Object.entries(entry.symptoms).map(([name, rating]) => (
-                <div key={name} style={{ fontSize: '12px', marginBottom: 4, display: 'flex', gap: 6 }}>
-                  <span style={{ color: 'var(--color-text-secondary)' }}>{name}:</span>
-                  <span style={{ fontWeight: 500, color: 'var(--color-text-primary)' }}>{rating}</span>
-                </div>
-              ))}
-              {entry.text && (
-                <p style={{ fontSize: '13px', color: 'var(--color-text-primary)', lineHeight: 1.55, marginTop: entry.symptoms ? 8 : 0, marginBottom: 0, display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical' as const, overflow: 'hidden' }}>{entry.text}</p>
-              )}
-              {entry.linked_supplement_id && suppMap[entry.linked_supplement_id] && (
-                <div style={{ marginTop: 8, fontSize: '11px', color: 'var(--color-text-hint)', display: 'flex', alignItems: 'center', gap: 4 }}>
-                  <span>↗</span>
-                  <span>{suppMap[entry.linked_supplement_id]}</span>
-                </div>
-              )}
-            </div>
-          ))}
+            )
+          })}
         </div>
       )}
 
-      {/* Entry detail sheet */}
-      <BottomSheet open={selectedEntry !== null} onClose={() => { setSelectedEntry(null); setEditingEntry(null) }} title={formatEntryDate(selectedEntry?.entry_date ?? '')}>
-        {selectedEntry && !editingEntry && (
-          <div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
-              <span style={{ fontSize: '11px', fontWeight: 500, padding: '2px 8px', borderRadius: '100px', background: selectedEntry.entry_type === 'checkin' ? 'var(--color-primary-light)' : 'var(--color-surface)', color: selectedEntry.entry_type === 'checkin' ? 'var(--color-primary)' : 'var(--color-text-secondary)', border: selectedEntry.entry_type === 'checkin' ? 'none' : '1px solid var(--color-border)' }}>
-                {selectedEntry.entry_type === 'checkin' ? 'Check-in' : 'Note'}
-              </span>
-            </div>
-            {selectedEntry.symptoms && (
-              <div style={{ marginBottom: 12 }}>
-                {Object.entries(selectedEntry.symptoms).map(([name, rating]) => (
-                  <div key={name} style={{ fontSize: '13px', marginBottom: 6, display: 'flex', gap: 8, alignItems: 'baseline' }}>
-                    <span style={{ color: 'var(--color-text-secondary)', minWidth: 80 }}>{name}</span>
-                    <span style={{ fontWeight: 500, color: 'var(--color-text-primary)' }}>{rating}</span>
-                  </div>
-                ))}
+      {/* Type selector sheet */}
+      <BottomSheet open={showTypeSelector} onClose={() => setShowTypeSelector(false)} title="New entry">
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10, paddingBottom: 8 }}>
+          {[
+            {
+              key: 'checkin',
+              title: 'Weekly check-in',
+              desc: 'Track your symptoms over time',
+              icon: <BarChartIcon />,
+              onClick: () => { setShowTypeSelector(false); if (config) setShowCheckin(true); else setShowInlineSetup(true) },
+            },
+            {
+              key: 'symptom',
+              title: 'Log symptom',
+              desc: 'Record a symptom or observation',
+              icon: <PencilIcon />,
+              onClick: () => { setShowTypeSelector(false); setNoteFormType('symptom') },
+            },
+            {
+              key: 'care',
+              title: 'Log care visit',
+              desc: 'Record a visit or appointment',
+              icon: <StethoscopeIcon />,
+              onClick: () => { setShowTypeSelector(false); setNoteFormType('care') },
+            },
+          ].map(opt => (
+            <button
+              key={opt.key}
+              onClick={opt.onClick}
+              style={{ width: '100%', display: 'flex', gap: 14, alignItems: 'center', padding: '14px 16px', background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 12, cursor: 'pointer', fontFamily: 'var(--font-sans)', textAlign: 'left' }}
+            >
+              <div style={{ width: 40, height: 40, borderRadius: 10, background: 'var(--color-primary-light)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                {opt.icon}
               </div>
-            )}
-            {selectedEntry.text && (
-              <p style={{ fontSize: '13px', color: 'var(--color-text-primary)', lineHeight: 1.6, marginBottom: 16 }}>{selectedEntry.text}</p>
-            )}
-            {selectedEntry.linked_supplement_id && suppMap[selectedEntry.linked_supplement_id] && (
-              <div style={{ fontSize: '12px', color: 'var(--color-text-hint)', marginBottom: 16 }}>
-                Linked: {suppMap[selectedEntry.linked_supplement_id]}
+              <div>
+                <div style={{ fontSize: '14px', fontWeight: 500, color: 'var(--color-text-primary)', marginBottom: 2 }}>{opt.title}</div>
+                <div style={{ fontSize: '12px', color: 'var(--color-text-secondary)' }}>{opt.desc}</div>
               </div>
-            )}
-            <div style={{ display: 'flex', gap: 8, paddingTop: 8, borderTop: '1px solid var(--color-border)' }}>
-              <button
-                onClick={() => openEditEntry(selectedEntry)}
-                style={{ flex: 1, padding: '9px', background: 'none', border: '1px solid var(--color-border)', borderRadius: 8, fontSize: '13px', cursor: 'pointer', color: 'var(--color-text-secondary)', fontFamily: 'var(--font-sans)' }}
-              >
-                Edit
-              </button>
-              <button
-                onClick={() => handleDeleteEntry(selectedEntry)}
-                style={{ flex: 1, padding: '9px', background: 'none', border: '1px solid var(--color-danger)', borderRadius: 8, fontSize: '13px', cursor: 'pointer', color: 'var(--color-danger)', fontFamily: 'var(--font-sans)' }}
-              >
-                Delete
-              </button>
-            </div>
-          </div>
-        )}
-
-        {selectedEntry && editingEntry && (
-          <div>
-            <label style={lbl}>Date</label>
-            <input type="date" value={editDate} onChange={e => setEditDate(e.target.value)} style={input} />
-            <label style={lbl}>Notes</label>
-            <textarea value={editText} onChange={e => setEditText(e.target.value)} rows={5} style={{ ...input, resize: 'vertical' as const }} />
-            <div style={{ display: 'flex', gap: 8 }}>
-              <button onClick={() => setEditingEntry(null)} style={{ flex: 1, padding: '10px', background: 'none', border: '1px solid var(--color-border)', borderRadius: 8, fontSize: '13px', cursor: 'pointer', color: 'var(--color-text-secondary)', fontFamily: 'var(--font-sans)' }}>
-                Cancel
-              </button>
-              <button onClick={saveEditEntry} disabled={saving} style={{ flex: 2, padding: '10px', background: 'var(--color-primary)', color: '#fff', border: 'none', borderRadius: 8, fontSize: '13px', fontWeight: 500, cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? 0.7 : 1, fontFamily: 'var(--font-sans)' }}>
-                {saving ? 'Saving…' : 'Save changes'}
-              </button>
-            </div>
-          </div>
-        )}
+            </button>
+          ))}
+        </div>
       </BottomSheet>
 
       {/* Journal config sheet */}

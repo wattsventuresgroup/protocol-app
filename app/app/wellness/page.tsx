@@ -3,8 +3,9 @@
 import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import BottomSheet from '../components/BottomSheet'
+import HamburgerMenu from '../components/HamburgerMenu'
 
-type Category = 'nutrition' | 'testing' | 'care'
+type Category = 'nutrition' | 'testing' | 'care' | 'approved_products'
 
 type WellnessItem = {
   id: string
@@ -40,9 +41,15 @@ const CATEGORY_META: Record<Category, { label: string; color: string; bg: string
     bg: 'var(--color-warning-light)',
     headColor: 'var(--color-warning)',
   },
+  approved_products: {
+    label: 'Approved Products',
+    color: 'var(--color-gold)',
+    bg: 'var(--color-gold-bg)',
+    headColor: 'var(--color-gold)',
+  },
 }
 
-const CATEGORIES: Category[] = ['nutrition', 'testing', 'care']
+const CATEGORIES: Category[] = ['nutrition', 'testing', 'care', 'approved_products']
 
 const EMPTY_FORM = {
   category: 'nutrition' as Category,
@@ -207,35 +214,52 @@ export default function WellnessPage() {
 
   return (
     <div style={{ padding: '16px 20px 0' }}>
-      {/* Toolbar */}
-      <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', marginBottom: showSearch ? 12 : 20 }}>
-        <button
-          onClick={() => showSearch ? closeSearch() : setShowSearch(true)}
-          style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '4px', color: showSearch ? 'var(--color-primary)' : 'var(--color-text-hint)', display: 'flex', alignItems: 'center' }}
-        >
-          {showSearch ? (
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
-            </svg>
-          ) : (
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" />
-            </svg>
-          )}
-        </button>
+      {/* Page header */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: showSearch ? 12 : 20 }}>
+        <div>
+          <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: '20px', fontWeight: 400, color: 'var(--color-primary)', lineHeight: 1.15, margin: '0 0 2px' }}>
+            Wellness
+          </h1>
+          <p style={{ fontSize: '12px', color: 'var(--color-text-secondary)', margin: 0 }}>Your care guidance</p>
+        </div>
+        <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+          <button
+            onClick={() => showSearch ? closeSearch() : setShowSearch(true)}
+            style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '6px', color: showSearch ? 'var(--color-primary)' : 'var(--color-text-hint)', display: 'flex', alignItems: 'center' }}
+          >
+            {showSearch ? (
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+              </svg>
+            ) : (
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" />
+              </svg>
+            )}
+          </button>
+          <HamburgerMenu />
+        </div>
       </div>
 
       {/* Search panel */}
       {showSearch && (
         <div style={{ marginBottom: 20 }}>
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={e => setSearchQuery(e.target.value)}
-            placeholder="Search wellness items..."
-            autoFocus
-            style={{ ...input, marginBottom: 8 }}
-          />
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8 }}>
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
+              placeholder="Search wellness items..."
+              autoFocus
+              style={{ ...input, marginBottom: 0, flex: 1 }}
+            />
+            <button
+              onClick={closeSearch}
+              style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-primary)', fontSize: '13px', fontWeight: 500, padding: '4px 0', flexShrink: 0, fontFamily: 'var(--font-sans)' }}
+            >
+              Cancel
+            </button>
+          </div>
           <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap', marginBottom: 8 }}>
             <input
               type="date"
@@ -289,7 +313,6 @@ export default function WellnessPage() {
 
               return (
                 <div key={item.id} style={{ background: 'var(--color-surface-raised)', borderRadius: 12, marginBottom: 8, border: '1px solid rgba(0,0,0,0.06)', boxShadow: '0 1px 3px rgba(0,0,0,0.08)', overflow: 'hidden' }}>
-                  {/* Header row */}
                   <div onClick={() => { setExpandedId(open ? null : item.id); setDeleteConfirmId(null) }} style={{ cursor: 'pointer', padding: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <span style={{ fontSize: '14px', fontWeight: 500, color: 'var(--color-text-primary)' }}>{item.name}</span>
@@ -309,7 +332,6 @@ export default function WellnessPage() {
                     <span style={{ fontSize: '16px', color: 'var(--color-text-hint)', transform: open ? 'rotate(90deg)' : 'none', transition: 'transform 0.15s', flexShrink: 0, lineHeight: 1 }}>›</span>
                   </div>
 
-                  {/* Expanded */}
                   {open && !confirming && (
                     <div style={{ borderTop: '1px solid rgba(0,0,0,0.06)', padding: '12px 16px 16px' }}>
                       {item.note && noteIsLong && (
@@ -388,6 +410,7 @@ export default function WellnessPage() {
           <option value="nutrition">Nutrition</option>
           <option value="testing">Testing</option>
           <option value="care">Ongoing Care & Treatment</option>
+          <option value="approved_products">Approved Products</option>
         </select>
 
         <label style={lbl}>Name *</label>

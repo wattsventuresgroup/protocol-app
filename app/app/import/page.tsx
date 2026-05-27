@@ -13,14 +13,16 @@ type ExtractedSupplement = {
   notesForPatient: string | null
   purchaseSource: string | null
   confidence: 'high' | 'low'
+  suggestedDestination?: string
 }
 
 type ExtractedWellness = {
-  category: 'nutrition' | 'testing' | 'care'
+  category: 'nutrition' | 'testing' | 'care' | 'approved_products'
   name: string
   note: string | null
   cadence: string | null
   confidence: 'high' | 'low'
+  suggestedDestination?: string
 }
 
 type ExtractedPrompt = {
@@ -34,6 +36,10 @@ type Extracted = {
   journalPrompts: ExtractedPrompt[]
 }
 
+type ImportDestination =
+  | 'plan_supplement' | 'plan_medication' | 'plan_nutrition'
+  | 'wellness_nutrition' | 'wellness_testing' | 'wellness_care' | 'wellness_approved'
+
 type ExtendedItemStatus = 'new' | 'duplicate' | 'low' | 'possible_update' | 'possible_match'
 
 type ExistingSupp = {
@@ -43,19 +49,63 @@ type ExistingSupp = {
   timing: string | null
 }
 
+type ReviewItem = {
+  id: string
+  name: string
+  dose: string | null
+  timing: string | null
+  cadence: string | null
+  intakeConditions: string | null
+  notes: string | null
+  confidence: 'high' | 'low'
+  destination: ImportDestination
+  checked: boolean
+  status: ExtendedItemStatus
+  updateChoice: 'update' | 'add_new'
+}
+
 type SaveResult = {
-  suppAdded: number
-  suppUpdated: number
-  suppFailed: string[]
+  planAdded: number
+  planUpdated: number
   wellnessAdded: number
-  wellnessFailed: string[]
+  failed: string[]
 }
 
 const supabase = createClient()
 
 const TIMING_MAP: Record<string, string> = {
-  morning: 'Morning', midday: 'Midday', afternoon: 'Afternoon',
+  morning: 'Morning', midday: 'Midday',
   evening: 'Evening', bedtime: 'Bedtime', asneeded: 'As needed',
+}
+
+const DESTINATION_LABELS: Record<ImportDestination, string> = {
+  plan_supplement: 'My Plan (Supplement)',
+  plan_medication: 'My Plan (Medication)',
+  plan_nutrition: 'My Plan (Nutrition)',
+  wellness_nutrition: 'Wellness: Nutrition',
+  wellness_testing: 'Wellness: Testing',
+  wellness_care: 'Wellness: Care',
+  wellness_approved: 'Wellness: Approved Products',
+}
+
+function categoryToDestination(category: string): ImportDestination {
+  if (category === 'testing') return 'wellness_testing'
+  if (category === 'care') return 'wellness_care'
+  if (category === 'approved_products') return 'wellness_approved'
+  return 'wellness_nutrition'
+}
+
+function destToSuppType(dest: ImportDestination): string {
+  if (dest === 'plan_medication') return 'medication'
+  if (dest === 'plan_nutrition') return 'nutrition'
+  return 'supplement'
+}
+
+function destToWellnessCategory(dest: ImportDestination): string {
+  if (dest === 'wellness_testing') return 'testing'
+  if (dest === 'wellness_care') return 'care'
+  if (dest === 'wellness_approved') return 'approved_products'
+  return 'nutrition'
 }
 
 const baseInput: React.CSSProperties = {
@@ -109,6 +159,12 @@ function detectSuppStatus(name: string, dose: string | null, existing: ExistingS
   return 'new'
 }
 
+function detectWellnessStatus(name: string, existing: string[], confidence: 'high' | 'low'): ExtendedItemStatus {
+  if (existing.some(e => e.toLowerCase() === name.toLowerCase())) return 'duplicate'
+  if (confidence === 'low') return 'low'
+  return 'new'
+}
+
 function statusBorderColor(status: ExtendedItemStatus): string {
   if (status === 'new') return '#1D9E75'
   if (status === 'possible_update') return 'var(--color-info)'
@@ -144,22 +200,14 @@ export default function ImportPage() {
   const [pasteText, setPasteText] = useState('')
   const [phase, setPhase] = useState<'input' | 'loading' | 'review' | 'saving' | 'result' | 'error'>('input')
   const [errorMsg, setErrorMsg] = useState('')
-  const [extracted, setExtracted] = useState<Extracted | null>(null)
   const [existingSuppDetails, setExistingSuppDetails] = useState<ExistingSupp[]>([])
   const [activeSuppNames, setActiveSuppNames] = useState<string[]>([])
   const [existingWellness, setExistingWellness] = useState<string[]>([])
-  const [userId, setUserId] = useState<string | null>(null)
   const [showExistingSupps, setShowExistingSupps] = useState(false)
   const [saveResult, setSaveResult] = useState<SaveResult | null>(null)
 
-  const [editedSupps, setEditedSupps] = useState<ExtractedSupplement[]>([])
-  const [editedWellness, setEditedWellness] = useState<ExtractedWellness[]>([])
+  const [reviewItems, setReviewItems] = useState<ReviewItem[]>([])
   const [editedPrompts, setEditedPrompts] = useState<ExtractedPrompt[]>([])
-
-  const [suppChecked, setSuppChecked] = useState<boolean[]>([])
-  const [suppStatuses, setSuppStatuses] = useState<ExtendedItemStatus[]>([])
-  const [suppUpdateChoice, setSuppUpdateChoice] = useState<('update' | 'add_new')[]>([])
-  const [wellnessChecked, setWellnessChecked] = useState<boolean[]>([])
   const [promptChecked, setPromptChecked] = useState<boolean[]>([])
 
   const fileRef = useRef<HTMLInputElement>(null)
@@ -171,7 +219,6 @@ export default function ImportPage() {
     async function load() {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) return
-      setUserId(user.id)
       const [{ data: supps }, { data: wellness }] = await Promise.all([
         supabase.from('supplements').select('id, name, dose, timing, status').eq('patient_id', user.id),
         supabase.from('wellness_items').select('name').eq('patient_id', user.id),
@@ -224,21 +271,52 @@ export default function ImportPage() {
       setPhase('error')
       return
     }
-    setExtracted(parsed)
-    setEditedSupps(parsed.supplements ?? [])
-    setEditedWellness(parsed.wellnessItems ?? [])
-    setEditedPrompts(parsed.journalPrompts ?? [])
 
-    const statuses = (parsed.supplements ?? []).map(s =>
-      detectSuppStatus(s.name, s.dose, existingSuppDetails, s.confidence)
-    )
-    setSuppStatuses(statuses)
-    setSuppChecked(statuses.map(st => st !== 'duplicate' && st !== 'low'))
-    setSuppUpdateChoice(statuses.map(() => 'update' as const))
-    setWellnessChecked((parsed.wellnessItems ?? []).map(w => {
-      const isDup = existingWellness.some(e => e.toLowerCase() === w.name.toLowerCase())
-      return !isDup && w.confidence !== 'low'
-    }))
+    // Build unified ReviewItem list
+    const items: ReviewItem[] = []
+
+    for (let i = 0; i < (parsed.supplements ?? []).length; i++) {
+      const s = parsed.supplements[i]
+      const dest = (s.suggestedDestination as ImportDestination) ?? 'plan_supplement'
+      const status = detectSuppStatus(s.name, s.dose, existingSuppDetails, s.confidence)
+      items.push({
+        id: `s-${i}`,
+        name: s.name,
+        dose: s.dose,
+        timing: s.timing,
+        cadence: s.cadence,
+        intakeConditions: s.intakeConditions,
+        notes: s.notesForPatient,
+        confidence: s.confidence,
+        destination: dest,
+        checked: status !== 'duplicate' && status !== 'low',
+        status,
+        updateChoice: 'update',
+      })
+    }
+
+    for (let i = 0; i < (parsed.wellnessItems ?? []).length; i++) {
+      const w = parsed.wellnessItems[i]
+      const dest = (w.suggestedDestination as ImportDestination) ?? categoryToDestination(w.category)
+      const status = detectWellnessStatus(w.name, existingWellness, w.confidence)
+      items.push({
+        id: `w-${i}`,
+        name: w.name,
+        dose: null,
+        timing: null,
+        cadence: w.cadence,
+        intakeConditions: null,
+        notes: w.note,
+        confidence: w.confidence,
+        destination: dest,
+        checked: status !== 'duplicate' && status !== 'low',
+        status,
+        updateChoice: 'update',
+      })
+    }
+
+    setReviewItems(items)
+    setEditedPrompts(parsed.journalPrompts ?? [])
     setPromptChecked((parsed.journalPrompts ?? []).map(() => false))
     setPhase('review')
   }
@@ -301,81 +379,60 @@ export default function ImportPage() {
     else handleExtractPdf()
   }
 
-  function moveToWellness(idx: number) {
-    const supp = editedSupps[idx]
-    setEditedSupps(prev => prev.filter((_, i) => i !== idx))
-    setSuppChecked(prev => prev.filter((_, i) => i !== idx))
-    setSuppStatuses(prev => prev.filter((_, i) => i !== idx))
-    setSuppUpdateChoice(prev => prev.filter((_, i) => i !== idx))
-    const newItem: ExtractedWellness = {
-      category: 'nutrition',
-      name: supp.name,
-      note: supp.notesForPatient,
-      cadence: null,
-      confidence: 'high',
-    }
-    setEditedWellness(prev => [...prev, newItem])
-    setWellnessChecked(prev => [...prev, true])
+  function updateItem(idx: number, updates: Partial<ReviewItem>) {
+    setReviewItems(prev => prev.map((item, i) => i === idx ? { ...item, ...updates } : item))
   }
 
   async function handleSave() {
-    if (!userId) return
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return
     setPhase('saving')
 
-    const result: SaveResult = {
-      suppAdded: 0,
-      suppUpdated: 0,
-      suppFailed: [],
-      wellnessAdded: 0,
-      wellnessFailed: [],
-    }
+    const result: SaveResult = { planAdded: 0, planUpdated: 0, wellnessAdded: 0, failed: [] }
 
-    for (let i = 0; i < editedSupps.length; i++) {
-      if (!suppChecked[i]) continue
-      const supp = editedSupps[i]
-      const status = suppStatuses[i]
-      const updateChoice = suppUpdateChoice[i]
-
-      try {
-        if (status === 'possible_update' && updateChoice === 'update') {
-          const existingSupp = existingSuppDetails.find(e => e.name.toLowerCase() === supp.name.toLowerCase())
-          if (existingSupp) {
-            await supabase.from('supplements').update({
-              dose: supp.dose || null,
-              timing: supp.timing ? (TIMING_MAP[supp.timing] ?? supp.timing) : null,
-              cadence: supp.cadence || null,
-              intake_conditions: supp.intakeConditions || null,
-              notes_for_patient: supp.notesForPatient || null,
-              updated_at: new Date().toISOString(),
-            }).eq('id', existingSupp.id)
-            await supabase.from('regimen_events').insert({
-              patient_id: userId,
-              supplement_id: existingSupp.id,
-              supplement_name: existingSupp.name,
-              event: 'added',
-              initiated_by: 'patient',
-              date: new Date().toISOString(),
-              note: 'Updated from import',
-            })
-            result.suppUpdated++
-          }
-        } else {
-          const { data: row, error } = await supabase.from('supplements').insert({
-            patient_id: userId,
-            name: supp.name,
-            dose: supp.dose || null,
-            timing: supp.timing ? (TIMING_MAP[supp.timing] ?? supp.timing) : null,
-            cadence: supp.cadence || null,
-            intake_conditions: supp.intakeConditions || null,
-            notes_for_patient: supp.notesForPatient || null,
-            source: 'self',
-            status: 'tobuy',
-          }).select().single()
-          if (error || !row) {
-            result.suppFailed.push(supp.name)
+    for (const item of reviewItems.filter(i => i.checked)) {
+      if (item.destination.startsWith('plan_')) {
+        const suppType = destToSuppType(item.destination)
+        try {
+          if (item.status === 'possible_update' && item.updateChoice === 'update') {
+            const existing = existingSuppDetails.find(e => e.name.toLowerCase() === item.name.toLowerCase())
+            if (existing) {
+              const { error } = await supabase.from('supplements').update({
+                dose: item.dose || null,
+                timing: item.timing ? (TIMING_MAP[item.timing] ?? item.timing) : null,
+                cadence: item.cadence || null,
+                intake_conditions: item.intakeConditions || null,
+                notes_for_patient: item.notes || null,
+                updated_at: new Date().toISOString(),
+              }).eq('id', existing.id)
+              if (error) { console.error('Update failed:', item.name, error); result.failed.push(item.name); continue }
+              await supabase.from('regimen_events').insert({
+                patient_id: user.id,
+                supplement_id: existing.id,
+                supplement_name: existing.name,
+                event: 'added',
+                initiated_by: 'patient',
+                date: new Date().toISOString(),
+                note: 'Updated from import',
+              })
+              result.planUpdated++
+            }
           } else {
+            const { data: row, error } = await supabase.from('supplements').insert({
+              patient_id: user.id,
+              name: item.name,
+              type: suppType,
+              dose: item.dose || null,
+              timing: item.timing ? (TIMING_MAP[item.timing] ?? item.timing) : null,
+              cadence: item.cadence || null,
+              intake_conditions: item.intakeConditions || null,
+              notes_for_patient: item.notes || null,
+              source: 'self',
+              status: 'tobuy',
+            }).select().single()
+            if (error || !row) { console.error('Insert failed:', item.name, error); result.failed.push(item.name); continue }
             await supabase.from('regimen_events').insert({
-              patient_id: userId,
+              patient_id: user.id,
               supplement_id: row.id,
               supplement_name: row.name,
               event: 'added',
@@ -383,43 +440,42 @@ export default function ImportPage() {
               date: new Date().toISOString(),
               note: null,
             })
-            result.suppAdded++
+            result.planAdded++
           }
+        } catch (err) {
+          console.error('Save error:', item.name, err)
+          result.failed.push(item.name)
         }
-      } catch {
-        result.suppFailed.push(supp.name)
-      }
-    }
-
-    for (let i = 0; i < editedWellness.length; i++) {
-      if (!wellnessChecked[i]) continue
-      const item = editedWellness[i]
-      try {
-        const { error } = await supabase.from('wellness_items').insert({
-          patient_id: userId,
-          category: item.category,
-          name: item.name,
-          note: item.note || null,
-          cadence: item.cadence || null,
-          source: 'self',
-        })
-        if (error) result.wellnessFailed.push(item.name)
-        else result.wellnessAdded++
-      } catch {
-        result.wellnessFailed.push(item.name)
+      } else {
+        const category = destToWellnessCategory(item.destination)
+        try {
+          const { error } = await supabase.from('wellness_items').insert({
+            patient_id: user.id,
+            category,
+            name: item.name,
+            note: item.notes || null,
+            cadence: item.cadence || null,
+            source: 'self',
+          })
+          if (error) { console.error('Wellness insert failed:', item.name, error); result.failed.push(item.name); continue }
+          result.wellnessAdded++
+        } catch (err) {
+          console.error('Wellness save error:', item.name, err)
+          result.failed.push(item.name)
+        }
       }
     }
 
     const promptsToAdd = editedPrompts.filter((_, i) => promptChecked[i])
     if (promptsToAdd.length > 0) {
       const newSymptoms = promptsToAdd.map(p => ({ name: p.symptom, scale: 'Same/Improving/Worsening' }))
-      const { data: existing } = await supabase.from('journal_configs').select('*').eq('patient_id', userId).maybeSingle()
+      const { data: existing } = await supabase.from('journal_configs').select('*').eq('patient_id', user.id).maybeSingle()
       if (existing) {
         const merged = [...(existing.symptoms ?? []), ...newSymptoms].slice(0, 3)
-        await supabase.from('journal_configs').update({ symptoms: merged, updated_at: new Date().toISOString() }).eq('patient_id', userId)
+        await supabase.from('journal_configs').update({ symptoms: merged, updated_at: new Date().toISOString() }).eq('patient_id', user.id)
       } else {
         await supabase.from('journal_configs').insert({
-          patient_id: userId,
+          patient_id: user.id,
           cadence: 'Weekly',
           symptoms: newSymptoms.slice(0, 3),
           allow_free_text: true,
@@ -455,7 +511,6 @@ export default function ImportPage() {
 
       {phase === 'input' || phase === 'error' ? (
         <>
-          {/* Tabs */}
           <div style={{ display: 'flex', borderBottom: '1px solid var(--color-border)', marginBottom: 16 }}>
             {(['paste', 'pdf'] as const).map(t => (
               <button
@@ -528,16 +583,16 @@ export default function ImportPage() {
           <h2 style={{ fontFamily: 'var(--font-serif)', fontSize: '20px', fontWeight: 400, color: 'var(--color-primary)', marginBottom: 20 }}>Import complete</h2>
 
           <div style={{ background: 'var(--color-surface-raised)', border: '1px solid var(--color-border)', borderRadius: 12, padding: '16px', marginBottom: 16 }}>
-            {saveResult.suppAdded > 0 && (
+            {saveResult.planAdded > 0 && (
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
                 <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#1D9E75', flexShrink: 0 }} />
-                <span style={{ fontSize: '13px', color: 'var(--color-text-primary)' }}>{saveResult.suppAdded} supplement{saveResult.suppAdded !== 1 ? 's' : ''} added to To Buy</span>
+                <span style={{ fontSize: '13px', color: 'var(--color-text-primary)' }}>{saveResult.planAdded} item{saveResult.planAdded !== 1 ? 's' : ''} added to your plan</span>
               </div>
             )}
-            {saveResult.suppUpdated > 0 && (
+            {saveResult.planUpdated > 0 && (
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
                 <div style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--color-info)', flexShrink: 0 }} />
-                <span style={{ fontSize: '13px', color: 'var(--color-text-primary)' }}>{saveResult.suppUpdated} supplement{saveResult.suppUpdated !== 1 ? 's' : ''} updated</span>
+                <span style={{ fontSize: '13px', color: 'var(--color-text-primary)' }}>{saveResult.planUpdated} item{saveResult.planUpdated !== 1 ? 's' : ''} updated</span>
               </div>
             )}
             {saveResult.wellnessAdded > 0 && (
@@ -546,15 +601,15 @@ export default function ImportPage() {
                 <span style={{ fontSize: '13px', color: 'var(--color-text-primary)' }}>{saveResult.wellnessAdded} wellness item{saveResult.wellnessAdded !== 1 ? 's' : ''} added</span>
               </div>
             )}
-            {saveResult.suppAdded === 0 && saveResult.suppUpdated === 0 && saveResult.wellnessAdded === 0 && (
+            {saveResult.planAdded === 0 && saveResult.planUpdated === 0 && saveResult.wellnessAdded === 0 && (
               <p style={{ fontSize: '13px', color: 'var(--color-text-secondary)' }}>Nothing was saved.</p>
             )}
           </div>
 
-          {(saveResult.suppFailed.length > 0 || saveResult.wellnessFailed.length > 0) && (
+          {saveResult.failed.length > 0 && (
             <div style={{ background: 'var(--color-danger-light)', border: '1px solid var(--color-danger)', borderRadius: 10, padding: '12px 14px', marginBottom: 16 }}>
               <p style={{ fontSize: '12px', fontWeight: 500, color: 'var(--color-danger)', marginBottom: 6 }}>Failed to save:</p>
-              {[...saveResult.suppFailed, ...saveResult.wellnessFailed].map(name => (
+              {saveResult.failed.map(name => (
                 <p key={name} style={{ fontSize: '12px', color: 'var(--color-danger)' }}>• {name}</p>
               ))}
             </div>
@@ -567,7 +622,7 @@ export default function ImportPage() {
             Go to My Plan
           </button>
         </div>
-      ) : phase === 'review' && extracted ? (
+      ) : phase === 'review' ? (
         <>
           {/* Already in your plan */}
           {activeSuppNames.length > 0 && (
@@ -593,91 +648,77 @@ export default function ImportPage() {
             </div>
           )}
 
-          {/* SUPPLEMENTS */}
-          {editedSupps.length > 0 && (
-            <>
-              <h2 style={sectionHead}>Supplements</h2>
-              {editedSupps.map((supp, i) => {
-                const status = suppStatuses[i] ?? 'new'
-                return (
-                  <div
-                    key={i}
-                    style={{
-                      borderLeft: `3px solid ${statusBorderColor(status)}`,
-                      background: status === 'duplicate' ? 'var(--color-surface)' : 'var(--color-surface-raised)',
-                      borderRadius: '0 10px 10px 0',
-                      padding: '12px 14px',
-                      marginBottom: 10,
-                    }}
-                  >
-                    {/* Header row */}
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
-                      <input
-                        type="checkbox"
-                        checked={suppChecked[i] ?? false}
-                        onChange={e => {
-                          const next = [...suppChecked]
-                          next[i] = e.target.checked
-                          setSuppChecked(next)
-                        }}
-                        style={{ accentColor: 'var(--color-primary)', width: 15, height: 15, flexShrink: 0 }}
-                      />
-                      <StatusBadge status={status} />
-                      {status === 'low' && (
-                        <span style={{ fontSize: '11px', color: 'var(--color-warning)', fontWeight: 500 }}>Please verify</span>
-                      )}
-                      <button
-                        onClick={() => moveToWellness(i)}
-                        style={{ marginLeft: 'auto', fontSize: '11px', color: 'var(--color-text-hint)', background: 'none', border: '1px solid var(--color-border)', borderRadius: 4, padding: '2px 7px', cursor: 'pointer', fontFamily: 'var(--font-sans)' }}
-                      >
-                        → Wellness
-                      </button>
-                    </div>
+          {/* Unified review list */}
+          <h2 style={sectionHead}>Review items</h2>
+          {reviewItems.map((item, idx) => {
+            const isPlan = item.destination.startsWith('plan_')
+            return (
+              <div
+                key={item.id}
+                style={{
+                  borderLeft: `3px solid ${statusBorderColor(item.status)}`,
+                  background: item.status === 'duplicate' ? 'var(--color-surface)' : 'var(--color-surface-raised)',
+                  borderRadius: '0 10px 10px 0',
+                  padding: '12px 14px',
+                  marginBottom: 10,
+                }}
+              >
+                {/* Header row */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
+                  <input
+                    type="checkbox"
+                    checked={item.checked}
+                    onChange={e => updateItem(idx, { checked: e.target.checked })}
+                    style={{ accentColor: 'var(--color-primary)', width: 15, height: 15, flexShrink: 0 }}
+                  />
+                  <StatusBadge status={item.status} />
+                </div>
 
-                    {/* Update choice for possible_update */}
-                    {status === 'possible_update' && suppChecked[i] && (
-                      <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
-                        {(['update', 'add_new'] as const).map(choice => (
-                          <label key={choice} style={{ display: 'flex', alignItems: 'center', gap: 5, cursor: 'pointer', fontSize: '12px', color: suppUpdateChoice[i] === choice ? 'var(--color-info)' : 'var(--color-text-secondary)' }}>
-                            <input
-                              type="radio"
-                              name={`choice-${i}`}
-                              value={choice}
-                              checked={suppUpdateChoice[i] === choice}
-                              onChange={() => {
-                                const next = [...suppUpdateChoice]
-                                next[i] = choice
-                                setSuppUpdateChoice(next)
-                              }}
-                              style={{ accentColor: 'var(--color-info)' }}
-                            />
-                            {choice === 'update' ? 'Update existing' : 'Add as new'}
-                          </label>
-                        ))}
-                      </div>
-                    )}
+                {/* Update choice for possible_update + plan destination */}
+                {item.status === 'possible_update' && item.checked && isPlan && (
+                  <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
+                    {(['update', 'add_new'] as const).map(choice => (
+                      <label key={choice} style={{ display: 'flex', alignItems: 'center', gap: 5, cursor: 'pointer', fontSize: '12px', color: item.updateChoice === choice ? 'var(--color-info)' : 'var(--color-text-secondary)' }}>
+                        <input
+                          type="radio"
+                          name={`choice-${idx}`}
+                          value={choice}
+                          checked={item.updateChoice === choice}
+                          onChange={() => updateItem(idx, { updateChoice: choice })}
+                          style={{ accentColor: 'var(--color-info)' }}
+                        />
+                        {choice === 'update' ? 'Update existing' : 'Add as new'}
+                      </label>
+                    ))}
+                  </div>
+                )}
 
-                    <label style={reviewLbl}>Supplement name</label>
-                    <input
-                      value={editedSupps[i].name}
-                      onChange={e => {
-                        const next = [...editedSupps]
-                        next[i] = { ...next[i], name: e.target.value }
-                        setEditedSupps(next)
-                      }}
-                      style={{ ...reviewInput, fontWeight: 500, marginBottom: 8 }}
-                    />
+                <label style={reviewLbl}>Name</label>
+                <input
+                  value={item.name}
+                  onChange={e => updateItem(idx, { name: e.target.value })}
+                  style={{ ...reviewInput, fontWeight: 500, marginBottom: 8 }}
+                />
 
+                <label style={reviewLbl}>Destination</label>
+                <select
+                  value={item.destination}
+                  onChange={e => updateItem(idx, { destination: e.target.value as ImportDestination })}
+                  style={{ ...reviewInput, marginBottom: 8 }}
+                >
+                  {(Object.keys(DESTINATION_LABELS) as ImportDestination[]).map(d => (
+                    <option key={d} value={d}>{DESTINATION_LABELS[d]}</option>
+                  ))}
+                </select>
+
+                {isPlan ? (
+                  <>
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }}>
                       <div>
                         <label style={reviewLbl}>Dose</label>
                         <input
-                          value={editedSupps[i].dose ?? ''}
-                          onChange={e => {
-                            const next = [...editedSupps]
-                            next[i] = { ...next[i], dose: e.target.value || null }
-                            setEditedSupps(next)
-                          }}
+                          value={item.dose ?? ''}
+                          onChange={e => updateItem(idx, { dose: e.target.value || null })}
                           placeholder="e.g. 400mg"
                           style={reviewInput}
                         />
@@ -685,143 +726,55 @@ export default function ImportPage() {
                       <div>
                         <label style={reviewLbl}>Time of day</label>
                         <select
-                          value={editedSupps[i].timing ?? ''}
-                          onChange={e => {
-                            const next = [...editedSupps]
-                            next[i] = { ...next[i], timing: e.target.value || null }
-                            setEditedSupps(next)
-                          }}
+                          value={item.timing ?? ''}
+                          onChange={e => updateItem(idx, { timing: e.target.value || null })}
                           style={reviewInput}
                         >
                           <option value="">No preference</option>
                           <option value="morning">Morning</option>
                           <option value="midday">Midday</option>
-                          <option value="afternoon">Afternoon</option>
                           <option value="evening">Evening</option>
                           <option value="bedtime">Bedtime</option>
                           <option value="asneeded">As needed</option>
                         </select>
                       </div>
                     </div>
-
                     <label style={reviewLbl}>Intake conditions</label>
                     <input
-                      value={editedSupps[i].intakeConditions ?? ''}
-                      onChange={e => {
-                        const next = [...editedSupps]
-                        next[i] = { ...next[i], intakeConditions: e.target.value || null }
-                        setEditedSupps(next)
-                      }}
+                      value={item.intakeConditions ?? ''}
+                      onChange={e => updateItem(idx, { intakeConditions: e.target.value || null })}
                       placeholder="e.g. with food, before bed"
                       style={{ ...reviewInput, marginBottom: 8 }}
                     />
-
-                    <label style={reviewLbl}>Additional notes</label>
+                    <label style={reviewLbl}>Notes</label>
                     <input
-                      value={editedSupps[i].notesForPatient ?? ''}
-                      onChange={e => {
-                        const next = [...editedSupps]
-                        next[i] = { ...next[i], notesForPatient: e.target.value || null }
-                        setEditedSupps(next)
-                      }}
+                      value={item.notes ?? ''}
+                      onChange={e => updateItem(idx, { notes: e.target.value || null })}
                       placeholder="Additional notes"
                       style={reviewInput}
                     />
-                  </div>
-                )
-              })}
-            </>
-          )}
-
-          {/* WELLNESS */}
-          {editedWellness.length > 0 && (
-            <>
-              <h2 style={sectionHead}>Wellness</h2>
-              {editedWellness.map((item, i) => {
-                const isDup = existingWellness.some(e => e.toLowerCase() === item.name.toLowerCase())
-                const status: ExtendedItemStatus = isDup ? 'duplicate' : item.confidence === 'low' ? 'low' : 'new'
-                return (
-                  <div
-                    key={i}
-                    style={{
-                      borderLeft: `3px solid ${statusBorderColor(status)}`,
-                      background: status === 'duplicate' ? 'var(--color-surface)' : 'var(--color-surface-raised)',
-                      borderRadius: '0 10px 10px 0',
-                      padding: '12px 14px',
-                      marginBottom: 10,
-                    }}
-                  >
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
-                      <input
-                        type="checkbox"
-                        checked={wellnessChecked[i] ?? false}
-                        onChange={e => {
-                          const next = [...wellnessChecked]
-                          next[i] = e.target.checked
-                          setWellnessChecked(next)
-                        }}
-                        style={{ accentColor: 'var(--color-primary)', width: 15, height: 15, flexShrink: 0 }}
-                      />
-                      <StatusBadge status={status} />
-                      {status === 'low' && (
-                        <span style={{ fontSize: '11px', color: 'var(--color-warning)', fontWeight: 500 }}>Please verify</span>
-                      )}
-                    </div>
-
-                    <label style={reviewLbl}>Category</label>
-                    <select
-                      value={editedWellness[i].category}
-                      onChange={e => {
-                        const next = [...editedWellness]
-                        next[i] = { ...next[i], category: e.target.value as 'nutrition' | 'testing' | 'care' }
-                        setEditedWellness(next)
-                      }}
-                      style={{ ...reviewInput, marginBottom: 8 }}
-                    >
-                      <option value="nutrition">Nutrition</option>
-                      <option value="testing">Testing</option>
-                      <option value="care">Ongoing Care & Treatment</option>
-                    </select>
-
-                    <label style={reviewLbl}>Item</label>
+                  </>
+                ) : (
+                  <>
+                    <label style={reviewLbl}>Note</label>
                     <input
-                      value={editedWellness[i].name}
-                      onChange={e => {
-                        const next = [...editedWellness]
-                        next[i] = { ...next[i], name: e.target.value }
-                        setEditedWellness(next)
-                      }}
-                      style={{ ...reviewInput, fontWeight: 500, marginBottom: 8 }}
-                    />
-
-                    <label style={reviewLbl}>Instructions</label>
-                    <input
-                      value={editedWellness[i].note ?? ''}
-                      onChange={e => {
-                        const next = [...editedWellness]
-                        next[i] = { ...next[i], note: e.target.value || null }
-                        setEditedWellness(next)
-                      }}
+                      value={item.notes ?? ''}
+                      onChange={e => updateItem(idx, { notes: e.target.value || null })}
                       placeholder="Details or instructions"
                       style={{ ...reviewInput, marginBottom: 8 }}
                     />
-
                     <label style={reviewLbl}>How often</label>
                     <input
-                      value={editedWellness[i].cadence ?? ''}
-                      onChange={e => {
-                        const next = [...editedWellness]
-                        next[i] = { ...next[i], cadence: e.target.value || null }
-                        setEditedWellness(next)
-                      }}
+                      value={item.cadence ?? ''}
+                      onChange={e => updateItem(idx, { cadence: e.target.value || null })}
                       placeholder="e.g. Daily, Weekly"
                       style={reviewInput}
                     />
-                  </div>
-                )
-              })}
-            </>
-          )}
+                  </>
+                )}
+              </div>
+            )
+          })}
 
           {/* JOURNAL PROMPTS */}
           {editedPrompts.length > 0 && (
@@ -853,7 +806,7 @@ export default function ImportPage() {
 
           <div style={{ marginTop: 24, display: 'flex', gap: 10 }}>
             <button
-              onClick={() => { setPhase('input'); setExtracted(null) }}
+              onClick={() => { setPhase('input'); setReviewItems([]) }}
               style={{ flex: 1, padding: '11px', background: 'none', border: '1px solid var(--color-border)', borderRadius: 8, fontSize: '13px', cursor: 'pointer', color: 'var(--color-text-secondary)', fontFamily: 'var(--font-sans)' }}
             >
               Back

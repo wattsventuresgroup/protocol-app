@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import HamburgerMenu from '../components/HamburgerMenu'
 
 type ActivityItem = {
   id: string
@@ -182,35 +183,52 @@ export default function ActivityPage() {
 
   return (
     <div style={{ padding: '16px 20px 32px' }}>
-      {/* Toolbar */}
-      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: showFilter ? 12 : 20 }}>
-        <button
-          onClick={() => showFilter ? closeFilter() : setShowFilter(true)}
-          style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '4px', color: showFilter ? 'var(--color-primary)' : 'var(--color-text-hint)', display: 'flex', alignItems: 'center' }}
-        >
-          {showFilter ? (
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
-            </svg>
-          ) : (
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" />
-            </svg>
-          )}
-        </button>
+      {/* Page header */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: showFilter ? 12 : 20 }}>
+        <div>
+          <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: '20px', fontWeight: 400, color: 'var(--color-primary)', lineHeight: 1.15, margin: '0 0 2px' }}>
+            Activity
+          </h1>
+          <p style={{ fontSize: '12px', color: 'var(--color-text-secondary)', margin: 0 }}>Protocol history</p>
+        </div>
+        <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+          <button
+            onClick={() => showFilter ? closeFilter() : setShowFilter(true)}
+            style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '6px', color: showFilter ? 'var(--color-primary)' : 'var(--color-text-hint)', display: 'flex', alignItems: 'center' }}
+          >
+            {showFilter ? (
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+              </svg>
+            ) : (
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" />
+              </svg>
+            )}
+          </button>
+          <HamburgerMenu />
+        </div>
       </div>
 
       {/* Filter panel */}
       {showFilter && (
         <div style={{ marginBottom: 20 }}>
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={e => setSearchQuery(e.target.value)}
-            placeholder="Search activity..."
-            autoFocus
-            style={{ ...input, marginBottom: 8 }}
-          />
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8 }}>
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
+              placeholder="Search activity..."
+              autoFocus
+              style={{ ...input, marginBottom: 0, flex: 1 }}
+            />
+            <button
+              onClick={closeFilter}
+              style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-primary)', fontSize: '13px', fontWeight: 500, padding: '4px 0', flexShrink: 0, fontFamily: 'var(--font-sans)' }}
+            >
+              Cancel
+            </button>
+          </div>
           <select
             value={sourceFilter}
             onChange={e => setSourceFilter(e.target.value)}

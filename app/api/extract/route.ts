@@ -5,7 +5,7 @@ const SYSTEM_PROMPT = `You are extracting supplement and wellness information fr
 Recognize common abbreviations: Mag = Magnesium, Cal = Calcium, DHA, EPA, B12.
 
 Return ONLY valid JSON with no preamble, no explanation, no markdown. Exact structure:
-{ "supplements": [ { "name": "string", "dose": "string or null", "timing": "morning|midday|afternoon|evening|bedtime|asneeded", "cadence": "daily|everyother|xperweek|weekly|adhoc", "intakeConditions": "string or null", "notesForPatient": "string or null", "purchaseSource": "fullscript|amazon|pharmacy_otc|pharmacy_rx|brand_direct|custom|null", "confidence": "high|low" } ], "wellnessItems": [ { "category": "nutrition|testing|care", "name": "string", "note": "string or null", "cadence": "string or null", "confidence": "high|low" } ], "journalPrompts": [ { "symptom": "string", "instruction": "string or null" } ] }
+{ "supplements": [ { "name": "string", "dose": "string or null", "timing": "morning|midday|evening|bedtime|asneeded", "cadence": "daily|everyother|xperweek|weekly|adhoc", "intakeConditions": "string or null", "notesForPatient": "string or null", "purchaseSource": "fullscript|amazon|pharmacy_otc|pharmacy_rx|brand_direct|custom|null", "confidence": "high|low", "suggestedDestination": "plan_supplement|plan_medication|plan_nutrition" } ], "wellnessItems": [ { "category": "nutrition|testing|care|approved_products", "name": "string", "note": "string or null", "cadence": "string or null", "confidence": "high|low", "suggestedDestination": "wellness_nutrition|wellness_testing|wellness_care|wellness_approved" } ], "journalPrompts": [ { "symptom": "string", "instruction": "string or null" } ] }
 
 Rules:
 - Mark confidence low for anything ambiguous, conditional, casually mentioned, or where details are unclear
@@ -13,8 +13,10 @@ Rules:
 - Include supplements already being taken if mentioned
 - If dose is unclear or not mentioned, use null and mark confidence low
 - If timing is unclear or not specified, use "asneeded"
-- Categorize wellness: nutrition=food/diet/products, testing=labs/monitoring/blood work/follow-up appointments, care=movement/referrals/treatments/lifestyle
-- Extract wellness items from follow-up notes, casual mentions, lab orders, and appointment recommendations`
+- Categorize wellness: nutrition=food/diet/products, testing=labs/monitoring/blood work/follow-up appointments, care=movement/referrals/treatments/lifestyle, approved_products=specific products the practitioner has approved or recommends purchasing
+- Extract wellness items from follow-up notes, casual mentions, lab orders, and appointment recommendations
+- For suggestedDestination on supplements: use plan_medication for prescription drugs or specific pharmaceuticals; plan_nutrition for food-based items or dietary supplements; plan_supplement for all other supplements (default)
+- For suggestedDestination on wellnessItems: match the category field (nutrition→wellness_nutrition, testing→wellness_testing, care→wellness_care, approved_products→wellness_approved)`
 
 type ContentBlock =
   | { type: 'image'; source: { type: 'base64'; media_type: 'image/jpeg'; data: string } }

@@ -1,7 +1,6 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import BottomNav from './BottomNav'
-import AppHeader from './components/AppHeader'
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const supabase = await createClient()
@@ -21,14 +20,10 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       background: 'var(--color-surface)',
       position: 'relative',
     }}>
-      <AppHeader />
       <main style={{
         flex: 1,
         overflowY: 'auto',
-        paddingTop: '56px',
         paddingBottom: 'calc(64px + env(safe-area-inset-bottom))',
-        paddingLeft: 'var(--app-h-padding)',
-        paddingRight: 'var(--app-h-padding)',
       }}>
         {children}
       </main>
