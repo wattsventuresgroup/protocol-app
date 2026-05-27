@@ -175,6 +175,7 @@ export default function ImportPage() {
 
       let parsed: Extracted
       try {
+        console.log('Raw result:', result)
         parsed = JSON.parse(result)
       } catch {
         setErrorMsg('Nothing was found in this text. Try pasting a more detailed appointment summary.')

@@ -41,6 +41,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Empty response' }, { status: 500 })
     }
 
+    console.log('API response content:', content)
     return NextResponse.json({ result: content })
   } catch {
     return NextResponse.json({ error: 'Server error' }, { status: 500 })
