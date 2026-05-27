@@ -129,84 +129,89 @@ export default function ImportPage() {
 
   const canExtract = (tab === 'paste' ? pasteText.trim().length > 0 : pdfFile !== null) && phase !== 'loading'
 
-  async function handleExtract() {
-    if (!canExtract) return
+  async function runAiExtract(text: string) {
+    setLoadingMsg('Analyzing…')
+    const res = await fetch('/api/extract', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ text }),
+    })
+    if (!res.ok) {
+      setErrorMsg('Something went wrong. Please try again.')
+      setPhase('error')
+      return
+    }
+    const { result, error } = await res.json()
+    if (error) {
+      setErrorMsg('Something went wrong. Please try again.')
+      setPhase('error')
+      return
+    }
+    let parsed: Extracted
+    try {
+      console.log('Raw result:', result)
+      parsed = JSON.parse(result)
+    } catch {
+      setErrorMsg('Nothing was found in this text. Try pasting a more detailed appointment summary.')
+      setPhase('error')
+      return
+    }
+    if (!parsed.supplements?.length && !parsed.wellnessItems?.length && !parsed.journalPrompts?.length) {
+      setErrorMsg('Nothing was found in this text. Try pasting a more detailed appointment summary.')
+      setPhase('error')
+      return
+    }
+    setExtracted(parsed)
+    setEditedSupps(parsed.supplements ?? [])
+    setEditedWellness(parsed.wellnessItems ?? [])
+    setEditedPrompts(parsed.journalPrompts ?? [])
+    setSuppChecked((parsed.supplements ?? []).map(s =>
+      getItemStatus(s.name, existingSupps, s.confidence) === 'new'
+    ))
+    setWellnessChecked((parsed.wellnessItems ?? []).map(w =>
+      getItemStatus(w.name, existingWellness, w.confidence) === 'new'
+    ))
+    setPromptChecked((parsed.journalPrompts ?? []).map(() => false))
+    setPhase('review')
+  }
+
+  async function handleExtractPaste() {
+    if (!pasteText.trim() || phase === 'loading') return
     setPhase('loading')
     setErrorMsg('')
-
     try {
-      let text = pasteText
-
-      if (tab === 'pdf' && pdfFile) {
-        setLoadingMsg('Reading PDF…')
-        const formData = new FormData()
-        formData.append('file', pdfFile)
-        const pdfRes = await fetch('/api/extract-pdf', { method: 'POST', body: formData })
-        const pdfJson = await pdfRes.json()
-        if (!pdfRes.ok || pdfJson.error) {
-          setErrorMsg(pdfJson.error ?? "This PDF couldn't be read as text. Try copying and pasting the content instead.")
-          setPhase('error')
-          return
-        }
-        text = pdfJson.text
-      }
-
-      setLoadingMsg('Analyzing…')
-
-      const res = await fetch('/api/extract', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ text }),
-      })
-
-      if (!res.ok) {
-        setErrorMsg('Something went wrong. Please try again.')
-        setPhase('error')
-        return
-      }
-
-      const { result, error } = await res.json()
-
-      if (error) {
-        setErrorMsg('Something went wrong. Please try again.')
-        setPhase('error')
-        return
-      }
-
-      let parsed: Extracted
-      try {
-        console.log('Raw result:', result)
-        parsed = JSON.parse(result)
-      } catch {
-        setErrorMsg('Nothing was found in this text. Try pasting a more detailed appointment summary.')
-        setPhase('error')
-        return
-      }
-
-      if (!parsed.supplements?.length && !parsed.wellnessItems?.length && !parsed.journalPrompts?.length) {
-        setErrorMsg('Nothing was found in this text. Try pasting a more detailed appointment summary.')
-        setPhase('error')
-        return
-      }
-
-      setExtracted(parsed)
-      setEditedSupps(parsed.supplements ?? [])
-      setEditedWellness(parsed.wellnessItems ?? [])
-      setEditedPrompts(parsed.journalPrompts ?? [])
-
-      setSuppChecked((parsed.supplements ?? []).map(s =>
-        getItemStatus(s.name, existingSupps, s.confidence) === 'new'
-      ))
-      setWellnessChecked((parsed.wellnessItems ?? []).map(w =>
-        getItemStatus(w.name, existingWellness, w.confidence) === 'new'
-      ))
-      setPromptChecked((parsed.journalPrompts ?? []).map(() => false))
-
-      setPhase('review')
+      await runAiExtract(pasteText)
     } catch {
       setErrorMsg('Something went wrong. Please try again.')
       setPhase('error')
     }
+  }
+
+  async function handleExtractPdf() {
+    if (!pdfFile || phase === 'loading') return
+    setPhase('loading')
+    setErrorMsg('')
+    try {
+      setLoadingMsg('Reading PDF…')
+      const formData = new FormData()
+      formData.append('file', pdfFile)
+      const pdfRes = await fetch('/api/extract-pdf', { method: 'POST', body: formData })
+      const pdfJson = await pdfRes.json()
+      if (!pdfRes.ok || pdfJson.error) {
+        setErrorMsg(pdfJson.error ?? "This PDF couldn't be read as text. Try copying and pasting the content instead.")
+        setPhase('error')
+        return
+      }
+      await runAiExtract(pdfJson.text)
+    } catch {
+      setErrorMsg('Something went wrong. Please try again.')
+      setPhase('error')
+    }
+  }
+
+  function handleExtract() {
+    if (tab === 'paste') handleExtractPaste()
+    else handleExtractPdf()
   }
 
   async function handleSave() {
