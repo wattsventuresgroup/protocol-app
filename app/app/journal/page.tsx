@@ -115,8 +115,8 @@ export default function JournalPage() {
   const [userId, setUserId] = useState<string | null>(null)
   const [showConfigSheet, setShowConfigSheet] = useState(false)
   const [showCheckin, setShowCheckin] = useState(false)
+  const [showEditSymptoms, setShowEditSymptoms] = useState(false)
   const [noteFormType, setNoteFormType] = useState<'symptom' | 'care' | null>(null)
-  const [showInlineSetup, setShowInlineSetup] = useState(false)
   const [showTypeSelector, setShowTypeSelector] = useState(false)
   const [saving, setSaving] = useState(false)
   const [expandedEntryId, setExpandedEntryId] = useState<string | null>(null)
@@ -186,30 +186,6 @@ export default function JournalPage() {
     if (row) setConfig(row)
     setSaving(false)
     setShowConfigSheet(false)
-  }
-
-  async function saveInlineSetup() {
-    if (!userId) return
-    setSaving(true)
-    const cleanSymptoms = configForm.symptoms.filter(s => s.name.trim())
-    const { data: row } = await supabase
-      .from('journal_configs')
-      .upsert({
-        patient_id: userId,
-        cadence: configForm.cadence,
-        symptoms: cleanSymptoms,
-        allow_free_text: configForm.allowFreeText,
-        instructions: configForm.instructions.trim() || null,
-        updated_at: new Date().toISOString(),
-      }, { onConflict: 'patient_id' })
-      .select()
-      .single()
-    if (row) {
-      setConfig(row)
-      setShowInlineSetup(false)
-      setShowCheckin(true)
-    }
-    setSaving(false)
   }
 
   async function saveCheckin() {
@@ -325,7 +301,7 @@ export default function JournalPage() {
     return true
   }) : entries
 
-  const showForms = showCheckin || noteFormType !== null || showInlineSetup
+  const showForms = showCheckin || noteFormType !== null
 
   if (config === undefined) {
     return (
@@ -414,95 +390,99 @@ export default function JournalPage() {
         </div>
       )}
 
-      {/* New entry button + config link */}
+      {/* New entry button */}
       {!showForms && (
         <div style={{ marginBottom: 20 }}>
           <button
             onClick={() => setShowTypeSelector(true)}
-            style={{ width: '100%', padding: '11px', background: 'var(--color-primary)', color: '#fff', border: 'none', borderRadius: 8, fontSize: '13px', fontWeight: 500, cursor: 'pointer', fontFamily: 'var(--font-sans)', marginBottom: 10 }}
+            style={{ width: '100%', padding: '11px', background: 'var(--color-primary)', color: '#fff', border: 'none', borderRadius: 8, fontSize: '13px', fontWeight: 500, cursor: 'pointer', fontFamily: 'var(--font-sans)' }}
           >
             + New entry
           </button>
-          <button
-            onClick={() => setShowConfigSheet(true)}
-            style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '12px', color: config ? 'var(--color-text-hint)' : 'var(--color-primary)', padding: 0, fontFamily: 'var(--font-sans)' }}
-          >
-            {config ? 'Configure check-ins' : 'Set up check-ins →'}
-          </button>
         </div>
       )}
 
-      {/* Inline setup form */}
-      {showInlineSetup && (
+      {/* Check-in form (includes inline config setup when no config or editing symptoms) */}
+      {showCheckin && (
         <div style={{ background: 'var(--color-surface-raised)', border: '1px solid var(--color-border)', borderRadius: 12, padding: '16px', marginBottom: 20 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
-            <span style={{ fontSize: '14px', fontWeight: 500 }}>Quick setup</span>
-            <button onClick={() => setShowInlineSetup(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-text-hint)', fontSize: '18px', lineHeight: 1 }}>✕</button>
-          </div>
-          <label style={lbl}>How often?</label>
-          <select value={configForm.cadence} onChange={e => setConfigForm(f => ({ ...f, cadence: e.target.value }))} style={input}>
-            {['Daily', 'Weekly', 'Biweekly', 'As needed'].map(c => <option key={c}>{c}</option>)}
-          </select>
-          <label style={{ ...lbl, marginBottom: 10 }}>What to track (up to 3)</label>
-          {configForm.symptoms.map((s, i) => (
-            <div key={i} style={{ display: 'flex', gap: 8, marginBottom: 8, alignItems: 'center' }}>
-              <input type="text" value={s.name} onChange={e => setSymptom(i, 'name', e.target.value)} placeholder={`e.g. ${['Energy', 'Nausea', 'Sleep'][i] ?? 'Symptom'}`} style={{ ...input, marginBottom: 0, flex: 1 }} />
-              <button onClick={() => removeSymptom(i)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-text-hint)', fontSize: '18px', lineHeight: 1, padding: '8px 4px', flexShrink: 0 }}>✕</button>
-            </div>
-          ))}
-          {configForm.symptoms.length < 3 && (
-            <button onClick={addSymptom} style={{ background: 'none', border: '1px dashed var(--color-border)', borderRadius: 8, padding: '8px 14px', fontSize: '12px', color: 'var(--color-text-secondary)', cursor: 'pointer', marginBottom: 14, width: '100%' }}>
-              + Add symptom
-            </button>
-          )}
-          <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
-            <button onClick={() => setShowInlineSetup(false)} style={{ flex: 1, padding: '10px', background: 'none', border: '1px solid var(--color-border)', borderRadius: 8, fontSize: '13px', cursor: 'pointer', color: 'var(--color-text-secondary)' }}>Cancel</button>
-            <button onClick={saveInlineSetup} disabled={saving} style={{ flex: 2, padding: '10px', background: 'var(--color-primary)', color: '#fff', border: 'none', borderRadius: 8, fontSize: '13px', fontWeight: 500, cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? 0.7 : 1 }}>
-              {saving ? 'Saving…' : 'Set up & check in'}
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Check-in form */}
-      {showCheckin && config && (
-        <div style={{ background: 'var(--color-surface-raised)', border: '1px solid var(--color-border)', borderRadius: 12, padding: '16px', marginBottom: 20 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
-            <span style={{ fontSize: '14px', fontWeight: 500 }}>New check-in</span>
-            <button onClick={() => setShowCheckin(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-text-hint)', fontSize: '18px', lineHeight: 1 }}>✕</button>
-          </div>
-
-          <label style={lbl}>Date</label>
-          <input type="date" value={ciDate} onChange={e => setCiDate(e.target.value)} style={input} />
-
-          {config.symptoms?.map((symptom, i) => (
-            <div key={i} style={{ marginBottom: 14 }}>
-              <label style={lbl}>{symptom.name || `Symptom ${i + 1}`}</label>
-              {SCALES[symptom.scale] ? (
-                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                  {SCALES[symptom.scale].map(opt => (
-                    <button key={opt} onClick={() => setCiRatings(r => ({ ...r, [symptom.name]: opt }))} style={{ padding: '7px 14px', borderRadius: 8, fontSize: '12px', cursor: 'pointer', border: '1px solid', borderColor: ciRatings[symptom.name] === opt ? 'var(--color-primary)' : 'var(--color-border)', background: ciRatings[symptom.name] === opt ? 'var(--color-primary-light)' : 'transparent', color: ciRatings[symptom.name] === opt ? 'var(--color-primary)' : 'var(--color-text-secondary)', fontWeight: ciRatings[symptom.name] === opt ? 500 : 400 }}>
-                      {opt}
-                    </button>
-                  ))}
-                </div>
-              ) : (
-                <input type="text" value={ciRatings[symptom.name] ?? ''} onChange={e => setCiRatings(r => ({ ...r, [symptom.name]: e.target.value }))} placeholder="Your notes" style={input} />
-              )}
-            </div>
-          ))}
-
-          {config.allow_free_text && (
+          {(!config || showEditSymptoms) ? (
             <>
-              <label style={lbl}>Notes</label>
-              <textarea value={ciText} onChange={e => setCiText(e.target.value)} placeholder="How are you feeling?" rows={3} style={{ ...input, resize: 'vertical' as const }} />
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+                <span style={{ fontSize: '14px', fontWeight: 500 }}>Set up check-in</span>
+                <button onClick={() => { setShowCheckin(false); setShowEditSymptoms(false) }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-text-hint)', fontSize: '18px', lineHeight: 1 }}>✕</button>
+              </div>
+              <label style={lbl}>How often?</label>
+              <select value={configForm.cadence} onChange={e => setConfigForm(f => ({ ...f, cadence: e.target.value }))} style={input}>
+                {['Daily', 'Weekly', 'Biweekly', 'As needed'].map(c => <option key={c}>{c}</option>)}
+              </select>
+              <label style={{ ...lbl, marginBottom: 10 }}>What to track (up to 3)</label>
+              {configForm.symptoms.map((s, i) => (
+                <div key={i} style={{ display: 'flex', gap: 8, marginBottom: 8, alignItems: 'center' }}>
+                  <input type="text" value={s.name} onChange={e => setSymptom(i, 'name', e.target.value)} placeholder={`e.g. ${['Energy', 'Nausea', 'Sleep'][i] ?? 'Symptom'}`} style={{ ...input, marginBottom: 0, flex: 1 }} />
+                  <button onClick={() => removeSymptom(i)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-text-hint)', fontSize: '18px', lineHeight: 1, padding: '8px 4px', flexShrink: 0 }}>✕</button>
+                </div>
+              ))}
+              {configForm.symptoms.length < 3 && (
+                <button onClick={addSymptom} style={{ background: 'none', border: '1px dashed var(--color-border)', borderRadius: 8, padding: '8px 14px', fontSize: '12px', color: 'var(--color-text-secondary)', cursor: 'pointer', marginBottom: 14, width: '100%' }}>
+                  + Add symptom
+                </button>
+              )}
+              <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+                <button onClick={() => { setShowCheckin(false); setShowEditSymptoms(false) }} style={{ flex: 1, padding: '10px', background: 'none', border: '1px solid var(--color-border)', borderRadius: 8, fontSize: '13px', cursor: 'pointer', color: 'var(--color-text-secondary)' }}>Cancel</button>
+                <button
+                  onClick={async () => { await saveConfig(); setShowEditSymptoms(false) }}
+                  disabled={saving}
+                  style={{ flex: 2, padding: '10px', background: 'var(--color-primary)', color: '#fff', border: 'none', borderRadius: 8, fontSize: '13px', fontWeight: 500, cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? 0.7 : 1 }}
+                >
+                  {saving ? 'Saving…' : config ? 'Save & continue' : 'Save & start check-in'}
+                </button>
+              </div>
+            </>
+          ) : (
+            <>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+                <span style={{ fontSize: '14px', fontWeight: 500 }}>New check-in</span>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                  <button onClick={() => setShowEditSymptoms(true)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '13px', color: 'var(--color-text-hint)', padding: 0, fontFamily: 'var(--font-sans)' }}>
+                    Edit symptoms
+                  </button>
+                  <button onClick={() => setShowCheckin(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-text-hint)', fontSize: '18px', lineHeight: 1 }}>✕</button>
+                </div>
+              </div>
+
+              <label style={lbl}>Date</label>
+              <input type="date" value={ciDate} onChange={e => setCiDate(e.target.value)} style={input} />
+
+              {config.symptoms?.map((symptom, i) => (
+                <div key={i} style={{ marginBottom: 14 }}>
+                  <label style={lbl}>{symptom.name || `Symptom ${i + 1}`}</label>
+                  {SCALES[symptom.scale] ? (
+                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                      {SCALES[symptom.scale].map(opt => (
+                        <button key={opt} onClick={() => setCiRatings(r => ({ ...r, [symptom.name]: opt }))} style={{ padding: '7px 14px', borderRadius: 8, fontSize: '12px', cursor: 'pointer', border: '1px solid', borderColor: ciRatings[symptom.name] === opt ? 'var(--color-primary)' : 'var(--color-border)', background: ciRatings[symptom.name] === opt ? 'var(--color-primary-light)' : 'transparent', color: ciRatings[symptom.name] === opt ? 'var(--color-primary)' : 'var(--color-text-secondary)', fontWeight: ciRatings[symptom.name] === opt ? 500 : 400 }}>
+                          {opt}
+                        </button>
+                      ))}
+                    </div>
+                  ) : (
+                    <input type="text" value={ciRatings[symptom.name] ?? ''} onChange={e => setCiRatings(r => ({ ...r, [symptom.name]: e.target.value }))} placeholder="Your notes" style={input} />
+                  )}
+                </div>
+              ))}
+
+              {config.allow_free_text && (
+                <>
+                  <label style={lbl}>Notes</label>
+                  <textarea value={ciText} onChange={e => setCiText(e.target.value)} placeholder="How are you feeling?" rows={3} style={{ ...input, resize: 'vertical' as const }} />
+                </>
+              )}
+
+              <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+                <button onClick={() => setShowCheckin(false)} style={{ flex: 1, padding: '10px', background: 'none', border: '1px solid var(--color-border)', borderRadius: 8, fontSize: '13px', cursor: 'pointer', color: 'var(--color-text-secondary)' }}>Cancel</button>
+                <button onClick={saveCheckin} disabled={saving} style={{ flex: 2, padding: '10px', background: 'var(--color-primary)', color: '#fff', border: 'none', borderRadius: 8, fontSize: '13px', fontWeight: 500, cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? 0.7 : 1 }}>{saving ? 'Saving…' : 'Save check-in'}</button>
+              </div>
             </>
           )}
-
-          <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
-            <button onClick={() => setShowCheckin(false)} style={{ flex: 1, padding: '10px', background: 'none', border: '1px solid var(--color-border)', borderRadius: 8, fontSize: '13px', cursor: 'pointer', color: 'var(--color-text-secondary)' }}>Cancel</button>
-            <button onClick={saveCheckin} disabled={saving} style={{ flex: 2, padding: '10px', background: 'var(--color-primary)', color: '#fff', border: 'none', borderRadius: 8, fontSize: '13px', fontWeight: 500, cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? 0.7 : 1 }}>{saving ? 'Saving…' : 'Save check-in'}</button>
-          </div>
         </div>
       )}
 
@@ -642,7 +622,7 @@ export default function JournalPage() {
               title: 'Weekly check-in',
               desc: 'Track your symptoms over time',
               icon: <BarChartIcon />,
-              onClick: () => { setShowTypeSelector(false); if (config) setShowCheckin(true); else setShowInlineSetup(true) },
+              onClick: () => { setShowTypeSelector(false); setShowCheckin(true) },
             },
             {
               key: 'symptom',

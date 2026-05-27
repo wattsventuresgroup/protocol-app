@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import BottomSheet from '../components/BottomSheet'
 import HamburgerMenu from '../components/HamburgerMenu'
+import SmartSearch from '@/lib/components/SmartSearch'
 
 type Category = 'nutrition' | 'testing' | 'care' | 'approved_products'
 
@@ -115,12 +116,14 @@ export default function WellnessPage() {
   }, [])
 
   async function handleSave() {
-    if (!form.name.trim() || !userId) return
+    if (!form.name.trim()) return
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return
     setSaving(true)
     const { data: row, error } = await supabase
       .from('wellness_items')
       .insert({
-        patient_id: userId,
+        patient_id: user.id,
         category: form.category,
         name: form.name.trim(),
         note: form.note.trim() || null,
@@ -137,7 +140,9 @@ export default function WellnessPage() {
   }
 
   async function handleEditSave() {
-    if (!form.name.trim() || !userId || !editingItem) return
+    if (!form.name.trim() || !editingItem) return
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return
     setSaving(true)
     const updates = {
       category: form.category,
@@ -414,7 +419,23 @@ export default function WellnessPage() {
         </select>
 
         <label style={lbl}>Name *</label>
-        <input type="text" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="e.g. Reduce high-histamine foods, Urinalysis, Pelvic floor PT" style={input} />
+        <SmartSearch
+          placeholder="e.g. Reduce high-histamine foods, Urinalysis, Pelvic floor PT"
+          databases={
+            form.category === 'nutrition' ? ['nutrition'] :
+            form.category === 'testing' ? ['testing'] :
+            form.category === 'care' ? ['treatments'] :
+            ['approved']
+          }
+          value={form.name}
+          onChange={v => setForm(f => ({ ...f, name: v }))}
+          onSelect={entry => setForm(f => ({
+            ...f,
+            name: entry.name,
+            cadence: entry.cadence || '',
+            note: entry.note || '',
+          }))}
+        />
 
         <label style={lbl}>Note</label>
         <textarea value={form.note} onChange={e => setForm(f => ({ ...f, note: e.target.value }))} placeholder="Details or instructions" rows={3} style={{ ...input, resize: 'vertical' as const }} />

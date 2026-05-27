@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import BottomSheet from '../components/BottomSheet'
 import HamburgerMenu from '../components/HamburgerMenu'
+import SmartSearch from '@/lib/components/SmartSearch'
 
 type SupStatus = 'tobuy' | 'notstarted' | 'active' | 'paused' | 'discontinued'
 
@@ -12,6 +13,7 @@ type Supplement = {
   patient_id: string
   name: string
   type: string | null
+  brand: string | null
   dose: string | null
   timing: string | null
   cadence: string | null
@@ -66,9 +68,25 @@ const EVENT_LABELS: Record<string, string> = {
   removed: 'Removed',
 }
 
+const TIMING_MAP: Record<string, string> = {
+  morning: 'Morning', midday: 'Midday', evening: 'Evening', bedtime: 'Bedtime',
+  'as needed': 'As needed', asneeded: 'As needed', 'with meals': '',
+}
+const CADENCE_MAP: Record<string, string> = {
+  'once daily': 'Once daily', daily: 'Once daily',
+  'twice daily': 'Twice daily',
+  'three times daily': 'Three times daily (with each meal)',
+  'three times daily (with each meal)': 'Three times daily (with each meal)',
+  'every other day': 'Every other day',
+  weekly: 'Weekly', 'as needed': 'As needed',
+}
+function mapTiming(t?: string): string { return t ? (TIMING_MAP[t.toLowerCase()] ?? t) : '' }
+function mapCadence(c?: string): string { return c ? (CADENCE_MAP[c.toLowerCase()] ?? c) : '' }
+
 const EMPTY_FORM = {
   name: '',
   type: 'supplement' as string,
+  brand: '',
   dose: '',
   timing: '',
   cadence: '',
@@ -189,10 +207,11 @@ export default function PlanPage() {
     load()
   }, [])
 
-  async function logEvent(suppId: string, suppName: string, event: string, note?: string) {
-    if (!userId) return
+  async function logEvent(suppId: string, suppName: string, event: string, note?: string, uid?: string) {
+    const effectiveUid = uid ?? userId
+    if (!effectiveUid) return
     const payload = {
-      patient_id: userId,
+      patient_id: effectiveUid,
       supplement_id: suppId,
       supplement_name: suppName,
       event,
@@ -211,14 +230,17 @@ export default function PlanPage() {
   }
 
   async function handleSave() {
-    if (!form.name.trim() || !userId) return
+    if (!form.name.trim()) return
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return
     setSaving(true)
     const { data: row, error } = await supabase
       .from('supplements')
       .insert({
-        patient_id: userId,
+        patient_id: user.id,
         name: form.name.trim(),
         type: form.type,
+        brand: form.brand.trim() || null,
         dose: form.dose.trim() || null,
         timing: MULTI_DOSE_CADENCES.has(form.cadence) ? null : (form.timing || null),
         cadence: form.cadence || null,
@@ -232,7 +254,7 @@ export default function PlanPage() {
       .select()
       .single()
     if (!error && row) {
-      await logEvent(row.id, row.name, 'added')
+      await logEvent(row.id, row.name, 'added', undefined, user.id)
       setSupplements(prev => [...prev, row])
     }
     setSaving(false)
@@ -241,11 +263,14 @@ export default function PlanPage() {
   }
 
   async function handleEditSave() {
-    if (!form.name.trim() || !userId || !editingSupp) return
+    if (!form.name.trim() || !editingSupp) return
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return
     setSaving(true)
     const updates = {
       name: form.name.trim(),
       type: form.type,
+      brand: form.brand.trim() || null,
       dose: form.dose.trim() || null,
       timing: MULTI_DOSE_CADENCES.has(form.cadence) ? null : (form.timing || null),
       cadence: form.cadence || null,
@@ -256,7 +281,7 @@ export default function PlanPage() {
       updated_at: new Date().toISOString(),
     }
     await supabase.from('supplements').update(updates).eq('id', editingSupp.id)
-    await logEvent(editingSupp.id, form.name.trim(), 'added', 'edited')
+    await logEvent(editingSupp.id, form.name.trim(), 'added', 'edited', user.id)
     setSupplements(prev => prev.map(s => s.id === editingSupp!.id ? { ...s, ...updates } : s))
     setSaving(false)
     setShowAddSheet(false)
@@ -284,6 +309,7 @@ export default function PlanPage() {
     setForm({
       name: supp.name,
       type: supp.type ?? 'supplement',
+      brand: supp.brand ?? '',
       dose: supp.dose ?? '',
       timing: supp.timing ?? '',
       cadence: supp.cadence ?? '',
@@ -342,11 +368,14 @@ export default function PlanPage() {
           style={{ cursor: 'pointer', padding: '14px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}
         >
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: secondaryLine ? 4 : 0 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: (supp.brand || secondaryLine) ? 4 : 0 }}>
               <div style={{ width: 8, height: 8, borderRadius: '50%', flexShrink: 0, background: dotColor(supp.status) }} />
               <TypeBadge type={supp.type} />
               <span style={{ fontSize: '15px', fontWeight: 500, color: 'var(--color-text-primary)', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{supp.name}</span>
             </div>
+            {supp.brand && (
+              <p style={{ fontSize: '12px', color: 'var(--color-text-hint)', margin: '0 0 2px', paddingLeft: 14 }}>{supp.brand}</p>
+            )}
             {secondaryLine && (
               <p style={{ fontSize: '13px', color: 'var(--color-text-secondary)', margin: 0, paddingLeft: 14 }}>{secondaryLine}</p>
             )}
@@ -699,7 +728,26 @@ export default function PlanPage() {
       {/* Add / Edit supplement sheet */}
       <BottomSheet open={showAddSheet} onClose={closeSheet} title={editingSupp ? 'Edit supplement' : 'Add supplement'}>
         <label style={frmLbl}>Name *</label>
-        <input type="text" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="e.g. Magnesium Glycinate" style={input} />
+        <SmartSearch
+          placeholder="e.g. Magnesium Glycinate"
+          databases={['supplements', 'medications']}
+          value={form.name}
+          onChange={v => setForm(f => ({ ...f, name: v }))}
+          onSelect={entry => setForm(f => ({
+            ...f,
+            name: entry.name,
+            type: entry.type || 'supplement',
+            brand: entry.brand || '',
+            dose: entry.dose || '',
+            timing: mapTiming(entry.timing),
+            cadence: mapCadence(entry.cadence),
+            intakeConditions: entry.intakeConditions || '',
+            notes: entry.notes || '',
+          }))}
+        />
+
+        <label style={frmLbl}>Brand</label>
+        <input type="text" value={form.brand} onChange={e => setForm(f => ({ ...f, brand: e.target.value }))} placeholder="e.g. Designs for Health, Thorne" style={input} />
 
         <label style={frmLbl}>Type</label>
         <select value={form.type} onChange={e => setForm(f => ({ ...f, type: e.target.value }))} style={input}>

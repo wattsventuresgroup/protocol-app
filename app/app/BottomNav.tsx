@@ -83,7 +83,7 @@ export default function BottomNav() {
           >
             {tab.icon(active)}
             <span style={{
-              fontSize: '12px',
+              fontSize: '13px',
               fontWeight: active ? 500 : 400,
               lineHeight: 1,
             }}>
