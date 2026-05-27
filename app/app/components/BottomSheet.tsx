@@ -8,7 +8,7 @@ export default function BottomSheet({
 }: {
   open: boolean
   onClose: () => void
-  title: string
+  title?: string
   children: React.ReactNode
 }) {
   if (!open) return null

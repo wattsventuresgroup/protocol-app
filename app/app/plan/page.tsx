@@ -36,9 +36,12 @@ type RegimenEvent = {
 
 const supabase = createClient()
 
-const TIMING_ORDER = ['Morning', 'Midday', 'Afternoon', 'Evening', 'Bedtime', 'Anytime']
+const TIMING_ORDER = ['Morning', 'Midday', 'Afternoon', 'Evening', 'Bedtime', 'Multiple times daily', 'Anytime']
 
-function timingGroup(timing: string | null): string {
+const MULTI_DOSE_CADENCES = new Set(['Twice daily', 'Three times daily (with each meal)'])
+
+function timingGroup(timing: string | null, cadence: string | null): string {
+  if (cadence && MULTI_DOSE_CADENCES.has(cadence)) return 'Multiple times daily'
   if (!timing || timing === 'As needed') return 'Anytime'
   return timing
 }
@@ -148,10 +151,12 @@ export default function PlanPage() {
   const [loading, setLoading] = useState(true)
   const [userId, setUserId] = useState<string | null>(null)
   const [expandedId, setExpandedId] = useState<string | null>(null)
+  const [expandedToBuyId, setExpandedToBuyId] = useState<string | null>(null)
   const [showAddSheet, setShowAddSheet] = useState(false)
   const [showDiscontinued, setShowDiscontinued] = useState(false)
   const [discontinueId, setDiscontinueId] = useState<string | null>(null)
   const [discontinueNote, setDiscontinueNote] = useState('')
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [form, setForm] = useState(EMPTY_FORM)
   const [editingSupp, setEditingSupp] = useState<Supplement | null>(null)
@@ -208,7 +213,7 @@ export default function PlanPage() {
         patient_id: userId,
         name: form.name.trim(),
         dose: form.dose.trim() || null,
-        timing: form.timing || null,
+        timing: MULTI_DOSE_CADENCES.has(form.cadence) ? null : (form.timing || null),
         cadence: form.cadence || null,
         intake_conditions: form.intakeConditions.trim() || null,
         notes_for_patient: form.notes.trim() || null,
@@ -234,7 +239,7 @@ export default function PlanPage() {
     const updates = {
       name: form.name.trim(),
       dose: form.dose.trim() || null,
-      timing: form.timing || null,
+      timing: MULTI_DOSE_CADENCES.has(form.cadence) ? null : (form.timing || null),
       cadence: form.cadence || null,
       intake_conditions: form.intakeConditions.trim() || null,
       notes_for_patient: form.notes.trim() || null,
@@ -256,6 +261,15 @@ export default function PlanPage() {
     setDiscontinueId(null)
     setDiscontinueNote('')
     setExpandedId(null)
+  }
+
+  async function handleDeleteSupplement(supp: Supplement) {
+    if (!userId) return
+    await logEvent(supp.id, supp.name, 'removed')
+    await supabase.from('supplements').delete().eq('id', supp.id)
+    setSupplements(prev => prev.filter(s => s.id !== supp.id))
+    setExpandedToBuyId(null)
+    setDeleteConfirmId(null)
   }
 
   function openEditSheet(supp: Supplement) {
@@ -280,12 +294,21 @@ export default function PlanPage() {
     setEditingSupp(null)
   }
 
+  function closeSearch() {
+    setShowSearch(false)
+    setSearchQuery('')
+    setExpandedSearchId(null)
+    setSearchFrom('')
+    setSearchTo('')
+    setSearchApplied(false)
+  }
+
   const toBuy = supplements.filter(s => s.status === 'tobuy')
   const planSupps = supplements.filter(s => ['notstarted', 'active', 'paused'].includes(s.status))
   const discSupps = supplements.filter(s => s.status === 'discontinued')
 
   const timingGroups = TIMING_ORDER
-    .map(t => ({ timing: t, items: planSupps.filter(s => timingGroup(s.timing) === t) }))
+    .map(t => ({ timing: t, items: planSupps.filter(s => timingGroup(s.timing, s.cadence) === t) }))
     .filter(g => g.items.length > 0)
 
   const hasFilter = searchQuery.trim() || searchApplied
@@ -442,37 +465,100 @@ export default function PlanPage() {
     )
   }
 
+  function renderToBuyCard(supp: Supplement) {
+    const open = expandedToBuyId === supp.id
+    const confirming = deleteConfirmId === supp.id
+
+    return (
+      <div key={supp.id} style={cardBase}>
+        <div
+          onClick={() => { setExpandedToBuyId(open ? null : supp.id); setDeleteConfirmId(null) }}
+          style={{ cursor: 'pointer', padding: '14px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}
+        >
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <span style={{ fontSize: '14px', fontWeight: 500, display: 'block', marginBottom: 2 }}>{supp.name}</span>
+            {supp.dose && <span style={{ fontSize: '12px', color: 'var(--color-text-secondary)' }}>{supp.dose}</span>}
+          </div>
+          <span style={{ fontSize: '16px', color: 'var(--color-text-hint)', transform: open ? 'rotate(90deg)' : 'none', transition: 'transform 0.15s', flexShrink: 0, lineHeight: 1 }}>›</span>
+        </div>
+
+        {open && !confirming && (
+          <div style={{ borderTop: '1px solid rgba(0,0,0,0.06)', padding: '12px 16px 16px' }}>
+            {supp.timing && <p style={{ fontSize: '12px', color: 'var(--color-text-secondary)', marginBottom: 5 }}>Time: {supp.timing}</p>}
+            {supp.cadence && <p style={{ fontSize: '12px', color: 'var(--color-text-secondary)', marginBottom: 5 }}>Cadence: {supp.cadence}</p>}
+            {supp.intake_conditions && <p style={{ fontSize: '12px', color: 'var(--color-text-secondary)', marginBottom: 5 }}>Take: {supp.intake_conditions}</p>}
+            {supp.notes_for_patient && <p style={{ fontSize: '12px', color: 'var(--color-text-secondary)', marginBottom: 8, lineHeight: 1.45 }}>{supp.notes_for_patient}</p>}
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 4 }}>
+              {supp.buy_link && (
+                <a href={supp.buy_link} target="_blank" rel="noopener noreferrer" style={{ padding: '5px 11px', background: 'var(--color-gold-bg)', color: 'var(--color-gold)', borderRadius: 6, fontSize: '11px', fontWeight: 500, textDecoration: 'none' }}>
+                  {supp.purchase_source ?? 'Buy'} →
+                </a>
+              )}
+              <a href={`https://www.google.com/search?q=${encodeURIComponent(supp.name)}`} target="_blank" rel="noopener noreferrer" style={{ padding: '5px 11px', background: 'var(--color-primary-light)', color: 'var(--color-primary-mid)', borderRadius: 6, fontSize: '11px', textDecoration: 'none' }}>
+                Search
+              </a>
+              <button onClick={e => { e.stopPropagation(); setStatus(supp, 'notstarted', 'purchased') }} style={{ padding: '5px 11px', background: 'transparent', color: 'var(--color-text-secondary)', border: '1px solid var(--color-border)', borderRadius: 6, fontSize: '11px', cursor: 'pointer' }}>
+                Got it
+              </button>
+              <button onClick={e => { e.stopPropagation(); openEditSheet(supp) }} style={{ padding: '5px 11px', background: 'transparent', color: 'var(--color-text-secondary)', border: '1px solid var(--color-border)', borderRadius: 6, fontSize: '11px', cursor: 'pointer' }}>
+                Edit
+              </button>
+              <button onClick={e => { e.stopPropagation(); setDeleteConfirmId(supp.id) }} style={{ padding: '5px 11px', background: 'transparent', color: 'var(--color-danger)', border: '1px solid var(--color-danger)', borderRadius: 6, fontSize: '11px', cursor: 'pointer' }}>
+                Delete
+              </button>
+            </div>
+          </div>
+        )}
+
+        {open && confirming && (
+          <div style={{ borderTop: '1px solid rgba(0,0,0,0.06)', padding: '12px 16px 16px' }}>
+            <p style={{ fontSize: '13px', fontWeight: 500, color: 'var(--color-danger)', marginBottom: 12 }}>Remove {supp.name} from your list?</p>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button onClick={e => { e.stopPropagation(); setDeleteConfirmId(null) }} style={{ flex: 1, padding: '8px', background: 'none', border: '1px solid var(--color-border)', borderRadius: 8, fontSize: '12px', cursor: 'pointer', color: 'var(--color-text-secondary)' }}>
+                Cancel
+              </button>
+              <button onClick={e => { e.stopPropagation(); handleDeleteSupplement(supp) }} style={{ flex: 1, padding: '8px', background: 'var(--color-danger)', color: '#fff', border: 'none', borderRadius: 8, fontSize: '12px', fontWeight: 500, cursor: 'pointer' }}>
+                Remove
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    )
+  }
+
   if (loading) {
     return (
-      <div style={{ padding: '24px 20px' }}>
-        <div style={{ height: 28, background: 'var(--color-border)', borderRadius: 8, width: '35%', marginBottom: 6 }} />
-        <div style={{ height: 14, background: 'var(--color-border)', borderRadius: 6, width: '55%', marginBottom: 28 }} />
+      <div style={{ padding: '16px 20px' }}>
+        <div style={{ height: 36, background: 'var(--color-border)', borderRadius: 8, width: '25%', marginLeft: 'auto', marginBottom: 20 }} />
         {[1, 2, 3].map(i => <div key={i} style={{ height: 68, background: 'var(--color-border)', borderRadius: 12, marginBottom: 8 }} />)}
       </div>
     )
   }
 
   return (
-    <div style={{ padding: '24px 20px 0' }}>
-      {/* Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: showSearch ? 12 : 24 }}>
-        <div>
-          <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: '20px', fontWeight: 400, color: 'var(--color-primary)', margin: 0, marginBottom: 4 }}>My Plan</h1>
-          <p style={{ fontSize: '12px', color: 'var(--color-text-secondary)', margin: 0 }}>Your current tracker</p>
-        </div>
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+    <div style={{ padding: '16px 20px 0' }}>
+      {/* Toolbar */}
+      <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 8, marginBottom: showSearch ? 12 : 20 }}>
+        {!showSearch && (
           <a href="/app/import" style={{ fontSize: '11px', color: 'var(--color-primary-mid)', textDecoration: 'none', padding: '5px 10px', border: '1px solid var(--color-primary-mid)', borderRadius: 6 }}>
             Import
           </a>
-          <button
-            onClick={() => { setShowSearch(v => !v); setSearchQuery(''); setExpandedSearchId(null); setSearchFrom(''); setSearchTo(''); setSearchApplied(false) }}
-            style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '4px', color: showSearch ? 'var(--color-primary)' : 'var(--color-text-hint)', display: 'flex', alignItems: 'center' }}
-          >
+        )}
+        <button
+          onClick={() => showSearch ? closeSearch() : setShowSearch(true)}
+          style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '4px', color: showSearch ? 'var(--color-primary)' : 'var(--color-text-hint)', display: 'flex', alignItems: 'center' }}
+        >
+          {showSearch ? (
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+            </svg>
+          ) : (
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" />
             </svg>
-          </button>
-        </div>
+          )}
+        </button>
       </div>
 
       {/* Search panel */}
@@ -563,27 +649,7 @@ export default function PlanPage() {
           {toBuy.length > 0 && (
             <section style={{ marginBottom: 24 }}>
               <h2 style={sectionHead}>To Buy</h2>
-              {toBuy.map(supp => (
-                <div key={supp.id} style={{ ...cardBase, padding: '14px 16px' }}>
-                  <div style={{ marginBottom: 8 }}>
-                    <span style={{ fontSize: '14px', fontWeight: 500 }}>{supp.name}</span>
-                    {supp.dose && <span style={{ fontSize: '12px', color: 'var(--color-text-secondary)', marginLeft: 8 }}>{supp.dose}</span>}
-                  </div>
-                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                    {supp.buy_link && (
-                      <a href={supp.buy_link} target="_blank" rel="noopener noreferrer" style={{ padding: '5px 11px', background: 'var(--color-gold-bg)', color: 'var(--color-gold)', borderRadius: 6, fontSize: '11px', fontWeight: 500, textDecoration: 'none' }}>
-                        {supp.purchase_source ?? 'Buy'} →
-                      </a>
-                    )}
-                    <a href={`https://www.google.com/search?q=${encodeURIComponent(supp.name)}`} target="_blank" rel="noopener noreferrer" style={{ padding: '5px 11px', background: 'var(--color-primary-light)', color: 'var(--color-primary-mid)', borderRadius: 6, fontSize: '11px', textDecoration: 'none' }}>
-                      Search
-                    </a>
-                    <button onClick={() => setStatus(supp, 'notstarted', 'purchased')} style={{ padding: '5px 11px', background: 'transparent', color: 'var(--color-text-secondary)', border: '1px solid var(--color-border)', borderRadius: 6, fontSize: '11px', fontWeight: 500, cursor: 'pointer' }}>
-                      Got it
-                    </button>
-                  </div>
-                </div>
-              ))}
+              {toBuy.map(supp => renderToBuyCard(supp))}
             </section>
           )}
 
@@ -653,17 +719,23 @@ export default function PlanPage() {
         <label style={frmLbl}>Dose</label>
         <input type="text" value={form.dose} onChange={e => setForm(f => ({ ...f, dose: e.target.value }))} placeholder="e.g. 400mg, 2 capsules" style={input} />
 
-        <label style={frmLbl}>Time of Day</label>
-        <select value={form.timing} onChange={e => setForm(f => ({ ...f, timing: e.target.value }))} style={input}>
-          <option value="">No preference</option>
-          {['Morning', 'Midday', 'Afternoon', 'Evening', 'Bedtime', 'As needed'].map(t => <option key={t}>{t}</option>)}
-        </select>
-
         <label style={frmLbl}>Cadence</label>
         <select value={form.cadence} onChange={e => setForm(f => ({ ...f, cadence: e.target.value }))} style={input}>
           <option value="">— Not set —</option>
-          {['Daily', '2x/week', '3x/week', 'Every other day', 'As needed'].map(c => <option key={c}>{c}</option>)}
+          {['Once daily', 'Twice daily', 'Three times daily (with each meal)', 'Every other day', 'Weekly', 'As needed'].map(c => <option key={c}>{c}</option>)}
         </select>
+
+        {MULTI_DOSE_CADENCES.has(form.cadence) ? (
+          <p style={{ fontSize: '12px', color: 'var(--color-text-hint)', marginBottom: 14, fontStyle: 'italic' }}>Timing varies — based on meal schedule</p>
+        ) : (
+          <>
+            <label style={frmLbl}>Time of Day</label>
+            <select value={form.timing} onChange={e => setForm(f => ({ ...f, timing: e.target.value }))} style={input}>
+              <option value="">No preference</option>
+              {['Morning', 'Midday', 'Afternoon', 'Evening', 'Bedtime', 'As needed'].map(t => <option key={t}>{t}</option>)}
+            </select>
+          </>
+        )}
 
         <label style={frmLbl}>Intake conditions</label>
         <input type="text" value={form.intakeConditions} onChange={e => setForm(f => ({ ...f, intakeConditions: e.target.value }))} placeholder="e.g. with food, before bed" style={input} />

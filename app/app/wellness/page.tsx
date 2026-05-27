@@ -79,6 +79,7 @@ export default function WellnessPage() {
   const [loading, setLoading] = useState(true)
   const [userId, setUserId] = useState<string | null>(null)
   const [expandedId, setExpandedId] = useState<string | null>(null)
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null)
   const [showAddSheet, setShowAddSheet] = useState(false)
   const [saving, setSaving] = useState(false)
   const [form, setForm] = useState(EMPTY_FORM)
@@ -146,6 +147,13 @@ export default function WellnessPage() {
     setEditingItem(null)
   }
 
+  async function handleDelete(item: WellnessItem) {
+    await supabase.from('wellness_items').delete().eq('id', item.id)
+    setItems(prev => prev.filter(i => i.id !== item.id))
+    setExpandedId(null)
+    setDeleteConfirmId(null)
+  }
+
   function openEditSheet(item: WellnessItem) {
     setEditingItem(item)
     setForm({
@@ -162,6 +170,14 @@ export default function WellnessPage() {
     setShowAddSheet(false)
     setForm(EMPTY_FORM)
     setEditingItem(null)
+  }
+
+  function closeSearch() {
+    setShowSearch(false)
+    setSearchQuery('')
+    setSearchFrom('')
+    setSearchTo('')
+    setSearchApplied(false)
   }
 
   const hasFilter = searchQuery.trim() || searchApplied
@@ -182,29 +198,30 @@ export default function WellnessPage() {
 
   if (loading) {
     return (
-      <div style={{ padding: '24px 20px' }}>
-        <div style={{ height: 28, background: 'var(--color-border)', borderRadius: 8, width: '35%', marginBottom: 6 }} />
-        <div style={{ height: 14, background: 'var(--color-border)', borderRadius: 6, width: '50%', marginBottom: 28 }} />
+      <div style={{ padding: '16px 20px' }}>
+        <div style={{ height: 36, background: 'var(--color-border)', borderRadius: 8, width: '25%', marginLeft: 'auto', marginBottom: 20 }} />
         {[1, 2, 3].map(i => <div key={i} style={{ height: 56, background: 'var(--color-border)', borderRadius: 12, marginBottom: 8 }} />)}
       </div>
     )
   }
 
   return (
-    <div style={{ padding: '24px 20px 0' }}>
-      {/* Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: showSearch ? 12 : 24 }}>
-        <div>
-          <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: '20px', fontWeight: 400, color: 'var(--color-primary)', margin: 0, marginBottom: 4 }}>Wellness</h1>
-          <p style={{ fontSize: '12px', color: 'var(--color-text-secondary)', margin: 0 }}>Your wellness plan</p>
-        </div>
+    <div style={{ padding: '16px 20px 0' }}>
+      {/* Toolbar */}
+      <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', marginBottom: showSearch ? 12 : 20 }}>
         <button
-          onClick={() => { setShowSearch(v => !v); setSearchQuery(''); setSearchFrom(''); setSearchTo(''); setSearchApplied(false) }}
+          onClick={() => showSearch ? closeSearch() : setShowSearch(true)}
           style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '4px', color: showSearch ? 'var(--color-primary)' : 'var(--color-text-hint)', display: 'flex', alignItems: 'center' }}
         >
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" />
-          </svg>
+          {showSearch ? (
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+            </svg>
+          ) : (
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" />
+            </svg>
+          )}
         </button>
       </div>
 
@@ -267,14 +284,15 @@ export default function WellnessPage() {
             </h2>
             {catItems.map(item => {
               const open = expandedId === item.id
+              const confirming = deleteConfirmId === item.id
+              const noteIsLong = (item.note?.length ?? 0) > 100
+
               return (
                 <div key={item.id} style={{ background: 'var(--color-surface-raised)', borderRadius: 12, marginBottom: 8, border: '1px solid rgba(0,0,0,0.06)', boxShadow: '0 1px 3px rgba(0,0,0,0.08)', overflow: 'hidden' }}>
                   {/* Header row */}
-                  <div onClick={() => setExpandedId(open ? null : item.id)} style={{ cursor: 'pointer', padding: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+                  <div onClick={() => { setExpandedId(open ? null : item.id); setDeleteConfirmId(null) }} style={{ cursor: 'pointer', padding: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
                     <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <span style={{ fontSize: '14px', fontWeight: 500, color: 'var(--color-text-primary)' }}>{item.name}</span>
-                      </div>
+                      <span style={{ fontSize: '14px', fontWeight: 500, color: 'var(--color-text-primary)' }}>{item.name}</span>
                       {item.note && (
                         <p style={{ fontSize: '12px', color: 'var(--color-text-secondary)', marginTop: 4, lineHeight: 1.45, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' as const, overflow: 'hidden' }}>
                           {item.note}
@@ -292,9 +310,9 @@ export default function WellnessPage() {
                   </div>
 
                   {/* Expanded */}
-                  {open && (
+                  {open && !confirming && (
                     <div style={{ borderTop: '1px solid rgba(0,0,0,0.06)', padding: '12px 16px 16px' }}>
-                      {item.note && (
+                      {item.note && noteIsLong && (
                         <p style={{ fontSize: '13px', color: 'var(--color-text-secondary)', lineHeight: 1.55, marginBottom: 12 }}>
                           {item.note}
                         </p>
@@ -307,12 +325,34 @@ export default function WellnessPage() {
                       {!item.note && !item.link_url && (
                         <p style={{ fontSize: '12px', color: 'var(--color-text-hint)', marginBottom: 12 }}>No additional details.</p>
                       )}
-                      <button
-                        onClick={() => openEditSheet(item)}
-                        style={{ padding: '7px 12px', background: 'transparent', color: 'var(--color-text-secondary)', border: '1px solid var(--color-border)', borderRadius: 8, fontSize: '12px', cursor: 'pointer' }}
-                      >
-                        Edit
-                      </button>
+                      <div style={{ display: 'flex', gap: 8 }}>
+                        <button
+                          onClick={() => openEditSheet(item)}
+                          style={{ padding: '7px 12px', background: 'transparent', color: 'var(--color-text-secondary)', border: '1px solid var(--color-border)', borderRadius: 8, fontSize: '12px', cursor: 'pointer' }}
+                        >
+                          Edit
+                        </button>
+                        <button
+                          onClick={() => setDeleteConfirmId(item.id)}
+                          style={{ padding: '7px 12px', background: 'transparent', color: 'var(--color-danger)', border: '1px solid var(--color-danger)', borderRadius: 8, fontSize: '12px', cursor: 'pointer' }}
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {open && confirming && (
+                    <div style={{ borderTop: '1px solid rgba(0,0,0,0.06)', padding: '12px 16px 16px' }}>
+                      <p style={{ fontSize: '13px', fontWeight: 500, color: 'var(--color-danger)', marginBottom: 12 }}>Remove {item.name}?</p>
+                      <div style={{ display: 'flex', gap: 8 }}>
+                        <button onClick={() => setDeleteConfirmId(null)} style={{ flex: 1, padding: '8px', background: 'none', border: '1px solid var(--color-border)', borderRadius: 8, fontSize: '12px', cursor: 'pointer', color: 'var(--color-text-secondary)' }}>
+                          Cancel
+                        </button>
+                        <button onClick={() => handleDelete(item)} style={{ flex: 1, padding: '8px', background: 'var(--color-danger)', color: '#fff', border: 'none', borderRadius: 8, fontSize: '12px', fontWeight: 500, cursor: 'pointer' }}>
+                          Remove
+                        </button>
+                      </div>
                     </div>
                   )}
                 </div>
