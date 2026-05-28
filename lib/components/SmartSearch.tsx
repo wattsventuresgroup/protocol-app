@@ -66,7 +66,16 @@ export default function SmartSearch({ placeholder = 'Search...', onSelect, datab
       setOpen(false)
       return
     }
-    const hits = fuseRef.current.search(value, { limit: 8 }).map(r => r.item)
+    const seen = new Set<string>()
+    const hits = fuseRef.current.search(value, { limit: 20 })
+      .map(r => r.item)
+      .filter(item => {
+        const key = item.name.toLowerCase()
+        if (seen.has(key)) return false
+        seen.add(key)
+        return true
+      })
+      .slice(0, 8)
     setResults(hits)
     setOpen(hits.length > 0)
     setHighlighted(-1)

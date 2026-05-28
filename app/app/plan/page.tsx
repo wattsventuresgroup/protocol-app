@@ -234,29 +234,56 @@ export default function PlanPage() {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return
     setSaving(true)
-    const { data: row, error } = await supabase
-      .from('supplements')
-      .insert({
-        patient_id: user.id,
-        name: form.name.trim(),
-        type: form.type,
-        brand: form.brand.trim() || null,
-        dose: form.dose.trim() || null,
-        timing: MULTI_DOSE_CADENCES.has(form.cadence) ? null : (form.timing || null),
-        cadence: form.cadence || null,
-        intake_conditions: form.intakeConditions.trim() || null,
-        notes_for_patient: form.notes.trim() || null,
-        purchase_source: form.purchaseSource !== 'None' ? form.purchaseSource : null,
-        buy_link: form.buyLink.trim() || null,
-        source: 'self',
-        status: form.startingStatus,
-      })
-      .select()
-      .single()
-    if (!error && row) {
-      await logEvent(row.id, row.name, 'added', undefined, user.id)
-      setSupplements(prev => [...prev, row])
+
+    const payload = {
+      patient_id: user.id,
+      name: form.name.trim(),
+      type: form.type,
+      brand: form.brand.trim() || null,
+      dose: form.dose.trim() || null,
+      timing: MULTI_DOSE_CADENCES.has(form.cadence) ? null : (form.timing || null),
+      cadence: form.cadence || null,
+      intake_conditions: form.intakeConditions.trim() || null,
+      notes_for_patient: form.notes.trim() || null,
+      purchase_source: form.purchaseSource !== 'None' ? form.purchaseSource : null,
+      buy_link: form.buyLink.trim() || null,
+      source: 'self',
+      status: form.startingStatus,
     }
+
+    console.log('Attempting save with user:', user.id)
+    console.log('Supplement payload:', payload)
+
+    const { data, error } = await supabase
+      .from('supplements')
+      .insert({ ...payload, patient_id: user.id })
+      .select()
+
+    if (error) {
+      console.error('Supplement insert error:', error.message, error.details, error.hint)
+      setSaving(false)
+      return
+    }
+
+    console.log('Saved successfully:', data)
+
+    await supabase.from('regimen_events').insert({
+      patient_id: user.id,
+      supplement_id: data[0].id,
+      supplement_name: payload.name,
+      event: 'added',
+      initiated_by: 'patient',
+      date: new Date().toISOString(),
+    })
+
+    const { data: supps } = await supabase
+      .from('supplements')
+      .select('*')
+      .eq('patient_id', user.id)
+      .order('sort_order')
+      .order('created_at')
+    setSupplements(supps ?? [])
+
     setSaving(false)
     setShowAddSheet(false)
     setForm(EMPTY_FORM)
@@ -267,6 +294,7 @@ export default function PlanPage() {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return
     setSaving(true)
+
     const updates = {
       name: form.name.trim(),
       type: form.type,
@@ -280,9 +308,36 @@ export default function PlanPage() {
       buy_link: form.buyLink.trim() || null,
       updated_at: new Date().toISOString(),
     }
-    await supabase.from('supplements').update(updates).eq('id', editingSupp.id)
-    await logEvent(editingSupp.id, form.name.trim(), 'added', 'edited', user.id)
-    setSupplements(prev => prev.map(s => s.id === editingSupp!.id ? { ...s, ...updates } : s))
+
+    const { error } = await supabase
+      .from('supplements')
+      .update({ ...updates, patient_id: user.id })
+      .eq('id', editingSupp.id)
+
+    if (error) {
+      console.error('Supplement update error:', error.message, error.details, error.hint)
+      setSaving(false)
+      return
+    }
+
+    await supabase.from('regimen_events').insert({
+      patient_id: user.id,
+      supplement_id: editingSupp.id,
+      supplement_name: form.name.trim(),
+      event: 'added',
+      initiated_by: 'patient',
+      date: new Date().toISOString(),
+      note: 'edited',
+    })
+
+    const { data: supps } = await supabase
+      .from('supplements')
+      .select('*')
+      .eq('patient_id', user.id)
+      .order('sort_order')
+      .order('created_at')
+    setSupplements(supps ?? [])
+
     setSaving(false)
     setShowAddSheet(false)
     setForm(EMPTY_FORM)

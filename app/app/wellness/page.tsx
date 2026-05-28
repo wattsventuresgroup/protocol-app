@@ -120,20 +120,36 @@ export default function WellnessPage() {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return
     setSaving(true)
-    const { data: row, error } = await supabase
+
+    const payload = {
+      patient_id: user.id,
+      category: form.category,
+      name: form.name.trim(),
+      note: form.note.trim() || null,
+      cadence: form.cadence.trim() || null,
+      link_url: form.linkUrl.trim() || null,
+      source: 'self',
+    }
+
+    const { error } = await supabase
       .from('wellness_items')
-      .insert({
-        patient_id: user.id,
-        category: form.category,
-        name: form.name.trim(),
-        note: form.note.trim() || null,
-        cadence: form.cadence.trim() || null,
-        link_url: form.linkUrl.trim() || null,
-        source: 'self',
-      })
+      .insert({ ...payload, patient_id: user.id })
       .select()
-      .single()
-    if (!error && row) setItems(prev => [...prev, row])
+
+    if (error) {
+      console.error('Wellness insert error:', error.message, error.details, error.hint)
+      setSaving(false)
+      return
+    }
+
+    const { data: allItems } = await supabase
+      .from('wellness_items')
+      .select('*')
+      .eq('patient_id', user.id)
+      .order('sort_order')
+      .order('created_at')
+    setItems(allItems ?? [])
+
     setSaving(false)
     setShowAddSheet(false)
     setForm(EMPTY_FORM)
@@ -144,6 +160,7 @@ export default function WellnessPage() {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return
     setSaving(true)
+
     const updates = {
       category: form.category,
       name: form.name.trim(),
@@ -151,8 +168,26 @@ export default function WellnessPage() {
       cadence: form.cadence.trim() || null,
       link_url: form.linkUrl.trim() || null,
     }
-    await supabase.from('wellness_items').update(updates).eq('id', editingItem.id)
-    setItems(prev => prev.map(i => i.id === editingItem!.id ? { ...i, ...updates } : i))
+
+    const { error } = await supabase
+      .from('wellness_items')
+      .update({ ...updates, patient_id: user.id })
+      .eq('id', editingItem.id)
+
+    if (error) {
+      console.error('Wellness update error:', error.message, error.details, error.hint)
+      setSaving(false)
+      return
+    }
+
+    const { data: allItems } = await supabase
+      .from('wellness_items')
+      .select('*')
+      .eq('patient_id', user.id)
+      .order('sort_order')
+      .order('created_at')
+    setItems(allItems ?? [])
+
     setSaving(false)
     setShowAddSheet(false)
     setForm(EMPTY_FORM)
